@@ -1,0 +1,1 @@
+from openqaoa import FQAOA
