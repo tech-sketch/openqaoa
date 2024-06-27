@@ -2,7 +2,6 @@ from typing import List, Callable, Optional, Union, Dict
 from copy import deepcopy
 import numpy as np
 
-from .qaoa_result import QAOAResult
 from ..workflow_properties import CircuitProperties
 from ..baseworkflow import Workflow, check_compiled
 from ...backends import QAOABackendAnalyticalSimulator
@@ -108,8 +107,6 @@ class FQAOA(Workflow):
     >>> q_custom.compile(qubo_problem)
     >>> q_custom.optimize()
     """
-
-    results_class = QAOAResult
 
     def __init__(self, device=DeviceLocal("vectorized")):
         """
