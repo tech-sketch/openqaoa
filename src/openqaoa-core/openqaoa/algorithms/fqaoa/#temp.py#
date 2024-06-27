@@ -12,5 +12,6 @@ q.compile(problem=qubo_problem)
 #q.compile(qubo_problem)
 q.optimize() # L372
 # L385: self.result = self.optimizer.qaoa_result
-# 
+# L288: self.optimizer = get_optimizer()
+# L25: from ...optimizers.qaoa_optimizer import get_optimizer
 q.result.optimized 

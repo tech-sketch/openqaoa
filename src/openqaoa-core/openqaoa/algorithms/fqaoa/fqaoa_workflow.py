@@ -1,35 +1,34 @@
-import time
+from typing import List, Callable, Optional, Union, Dict
+from copy import deepcopy
 import numpy as np
-from typing import Optional, Callable
 
-from .fqaoa_workflow_properties import FqaoaParameters
-from ..baseworkflow import Workflow, check_compiled
-from ..qaoa import QAOA
+from .qaoa_result import QAOAResult
 from ..workflow_properties import CircuitProperties
-from ...backends.devices_core import DeviceLocal, DeviceBase
+from ..baseworkflow import Workflow, check_compiled
+from ...backends import QAOABackendAnalyticalSimulator
+from ...backends.devices_core import DeviceLocal
+from ...backends.qaoa_backend import get_qaoa_backend
 from ...problems import QUBO
-from ...utilities import (
-    ground_state_hamiltonian,
-    exp_val_hamiltonian_termwise,
-    generate_timestamp,
-    get_mixer_hamiltonian,
-)
 from ...qaoa_components import (
     Hamiltonian,
     QAOADescriptor,
     create_qaoa_variational_params,
 )
-from ...backends.qaoa_analytical_sim import QAOABackendAnalyticalSimulator
-from . import fqaoa_utils
-from .fqaoa_result import FQAOAResult
-from ...backends.wrapper import SPAMTwirlingWrapper
+from ...qaoa_components.variational_parameters.variational_baseparams import (
+    QAOAVariationalBaseParams,
+)
+from ...utilities import (
+    get_mixer_hamiltonian,
+    generate_timestamp,
+    ground_state_hamiltonian,
+)
 from ...optimizers.qaoa_optimizer import get_optimizer
-from ...backends.qaoa_backend import get_qaoa_backend
+from ...backends.wrapper import SPAMTwirlingWrapper,ZNEWrapper
 
 
 class FQAOA(Workflow):
     """
-    A class implementing a RQAOA workflow end to end.
+    A class implementing a QAOA workflow end to end.
 
     It's basic usage consists of
     1. Initialization
@@ -37,604 +36,154 @@ class FQAOA(Workflow):
     3. Optimization
 
     .. note::
-        The attributes of the RQAOA class should be initialized using the set methods of QAOA.
-        For example, to set the qaoa circuit's depth to 10 you should run `set_circuit_properties(p=10)`
+        The attributes of the QAOA class should be initialized using the set methods of QAOA.
+        For example, to set the circuit's depth to 10 you should run `set_circuit_properties(p=10)`
 
     Attributes
     ----------
     device: `DeviceBase`
         Device to be used by the optimizer
+    circuit_properties: `CircuitProperties`
+        The circuit properties of the QAOA workflow. Use to set depth `p`,
+        choice of parameterization, parameter initialisation strategies, mixer hamiltonians.
+        For a complete list of its parameters and usage please see the method `set_circuit_properties`
     backend_properties: `BackendProperties`
-        The backend properties of the RQAOA workflow. These properties will be used to
-        run QAOA at each RQAOA step. Use to set the backend properties such as the
-        number of shots and the cvar values. For a complete list of its parameters and
-        usage please see the method set_backend_properties
+        The backend properties of the QAOA workflow. Use to set the backend properties
+        such as the number of shots and the cvar values.
+        For a complete list of its parameters and usage please see the method `set_backend_properties`
     classical_optimizer: `ClassicalOptimizer`
-        The classical optimiser properties of the RQAOA workflow.
-        Use to set the classical optimiser needed for the classical optimisation part of the QAOA routine.
-        For a complete list of its parameters and usage please see the method set_classical_optimizer
+        The classical optimiser properties of the QAOA workflow. Use to set the
+        classical optimiser needed for the classical optimisation part of the QAOA routine.
+        For a complete list of its parameters and usage please see the method `set_classical_optimizer`
     local_simulators: `list[str]`
         A list containing the available local simulators
     cloud_provider: `list[str]`
         A list containing the available cloud providers
+    mixer_hamil: Hamiltonian
+        The desired mixer hamiltonian
+    cost_hamil: Hamiltonian
+        The desired mixer hamiltonian
+    qaoa_descriptor: QAOADescriptor
+        the abstract and backend-agnostic representation of the underlying QAOA parameters
+    variate_params: QAOAVariationalBaseParams
+        The variational parameters. These are the parameters to be optimised by the classical optimiser
+    backend: VQABaseBackend
+        The openQAOA representation of the backend to be used to execute the quantum circuit
+    optimizer: OptimizeVQA
+        The classical optimiser
+    result: `Result`
+        Contains the logs of the optimisation process
     compiled: `Bool`
-        A boolean flag to check whether the optimizer object has been correctly compiled at least once
-    circuit_properties: `CircuitProperties`
-        The circuit properties of the RQAOA workflow. These properties will be used to run QAOA at each RQAOA step.
-        Use to set depth `p`, choice of parametrisation, parameter initialisation strategies, mixer hamiltonians.
-        For a complete list of its parameters and usage please see the method set_circuit_properties
-    rqaoa_parameters: `RqaoaParameters`
-        Set of parameters containing all the relevant information for the recursive procedure of RQAOA.
-    results: `RQAOAResult`
-        The results of the RQAOA optimization.
-        Dictionary containing all the information about the RQAOA run: the
-        solution states and energies (key: 'solution'), the output of the classical
-        solver (key: 'classical_output'), the elimination rules for each step
-        (key: 'elimination_rules'), the number of eliminations at each step (key: 'schedule'),
-        total number of steps (key: 'number_steps'), the intermediate QUBO problems and the
-        intermediate QAOA objects that have been optimized in each RQAOA step (key: 'intermediate_problems').
-        This object (`RQAOAResult`) is a dictionary with some custom methods as
-        RQAOAResult.get_hamiltonian_step(i) which get the hamiltonian of reduced problem of the i-th step.
-        To see the full list of methods please see the RQAOAResult class.
+        A boolean flag to check whether the QAOA object has been correctly compiled at least once
 
     Examples
     --------
     Examples should be written in doctest format, and should illustrate how
     to use the function.
 
-    >>> r = RQAOA()
-    >>> r.compile(QUBO)
-    >>> r.optimize()
+    >>> q = QAOA()
+    >>> q.compile(QUBO)
+    >>> q.optimize()
 
     Where `QUBO` is a an instance of `openqaoa.problems.problem.QUBO`
 
     If you want to use non-default parameters:
 
-    Standard/custom (default) type:
-
-    >>> r = RQAOA()
-    >>> r.set_circuit_properties(
+    >>> q_custom = QAOA()
+    >>> q_custom.set_circuit_properties(
             p=10,
             param_type='extended',
             init_type='ramp',
             mixer_hamiltonian='x'
         )
-    >>> r.set_device_properties(
-            device_location='qcs',
-            device_name='Aspen-11',
-            cloud_credentials={
-                'name' : "Aspen11",
-                'as_qvm':True,
-                'execution_timeout' : 10,
-                'compiler_timeout':10
+    >>> q_custom.set_device_properties(
+            device_location = 'qcs', device_name='Aspen-11',
+            cloud_credentials = {
+                'name' : "Aspen11", 'as_qvm':True,
+                'execution_timeout' : 10, 'compiler_timeout':10
             }
         )
-    >>> r.set_backend_properties(n_shots=200, cvar_alpha=1)
-    >>> r.set_classical_optimizer(method='nelder-mead', maxiter=2)
-    >>> r.set_rqaoa_parameters(n_cutoff = 5, steps=[1,2,3,4,5])
-    >>> r.compile(qubo_problem)
-    >>> r.optimize()
-
-    Ada-RQAOA:
-
-    >>> r_adaptive = RQAOA()
-    >>> r.set_circuit_properties(
-            p=10,
-            param_type='extended',
-            init_type='ramp',
-            mixer_hamiltonian='x'
-        )
-    >>> r.set_device_properties(
-            device_location='qcs',
-            device_name='Aspen-11',
-            cloud_credentials={
-                'name' : "Aspen11",
-                'as_qvm':True,
-                'execution_timeout' : 10,
-                'compiler_timeout':10
-            }
-        )
-    >>> r_adaptive.set_backend_properties(n_shots=200, cvar_alpha=1)
-    >>> r_adaptive.set_classical_optimizer(method='nelder-mead', maxiter=2)
-    >>> r_adaptive.set_rqaoa_parameters(rqaoa_type = 'adaptive', n_cutoff = 5, n_max=5)
-    >>> r_adaptive.compile(qubo_problem)
-    >>> r_adaptive.optimize()
+    >>> q_custom.set_backend_properties(n_shots=200, cvar_alpha=1)
+    >>> q_custom.set_classical_optimizer(method='nelder-mead', maxiter=2)
+    >>> q_custom.compile(qubo_problem)
+    >>> q_custom.optimize()
     """
 
-    results_class = FQAOAResult
+    results_class = QAOAResult
 
-    def __init__(self, device: DeviceBase = DeviceLocal("vectorized")):
+    def __init__(self, device=DeviceLocal("vectorized")):
         """
-        Initialize the RQAOA class.
+        Initialize the QAOA class.
 
         Parameters
         ----------
-            device: `DeviceBase`
-                Device to be used by the optimizer. Default is using the local 'vectorized' simulator.
+        device: `DeviceBase`
+            Device to be used by the optimizer. Default is using the local 'vectorized' simulator.
         """
-        super().__init__(device)  # use the parent class to initialize
+        super().__init__(device)
         self.circuit_properties = CircuitProperties()
-        self.rqaoa_parameters = RqaoaParameters()
 
-        # change algorithm name to rqaoa
-        self.header["algorithm"] = "rqaoa"
+        # change header algorithm to qaoa
+        self.header["algorithm"] = "qaoa"
 
     @check_compiled
     def set_circuit_properties(self, **kwargs):
         """
-        Specify the circuit properties to construct the QAOA circuits
+        Specify the circuit properties to construct QAOA circuit
 
         Parameters
         ----------
-            qubit_register: `list`
-                Select the desired qubits to run the QAOA program. Meant to be used as a qubit
-                selector for qubits on a QPU. Defaults to a list from 0 to n-1 (n = number of qubits)
-            p: `int`
-                Depth `p` of the QAOA circuit
-            q: `int`
-                Analogue of `p` of the QAOA circuit in the Fourier parameterisation
-            param_type: `str`
-                Choose the QAOA circuit parameterisation. Currently supported parameterisations include:
-                `'standard'`: Standard QAOA parameterisation
-                `'standard_w_bias'`: Standard QAOA parameterisation with a separate parameter
-                for single-qubit terms.
-                `'extended'`: Individual parameter for each qubit and each term in the Hamiltonian.
-                `'fourier'`: Fourier circuit parameterisation
-                `'fourier_extended'`: Fourier circuit parameterisation with individual parameter
-                for each qubit and term in Hamiltonian.
-                `'fourier_w_bias'`: Fourier circuit parameterisation with a separate parameter
-                for single-qubit terms
-            init_type: `str`
-                Initialisation strategy for the QAOA circuit parameters. Allowed init_types:
-                `'rand'`: Randomly initialise circuit parameters
-                `'ramp'`: Linear ramp from Hamiltonian initialisation of circuit parameters
-                (inspired from Quantum Annealing)
-                `'custom'`: User specified initial circuit parameters
-            mixer_hamiltonian: `str`
-                Parameterisation of the mixer hamiltonian:
-                `'x'`: Randomly initialise circuit parameters
-                `'xy'`: Linear ramp from Hamiltonian initialisation of circuit
-            mixer_qubit_connectivity: `[Union[List[list],List[tuple], str]]`
-                The connectivity of the qubits in the mixer Hamiltonian. Use only if `mixer_hamiltonian = xy`.
-                The user can specify the connectivity as a list of lists, a list of tuples,
-                or a string chosen from ['full', 'chain', 'star'].
-            mixer_coeffs: `list`
-                The coefficients of the mixer Hamiltonian. By default all set to -1
-            annealing_time: `float`
-                Total time to run the QAOA program in the Annealing parameterisation (digitised annealing)
-            linear_ramp_time: `float`
-                The slope(rate) of linear ramp initialisation of QAOA parameters.
-            variational_params_dict: `dict`
-                Dictionary object specifying the initial value of each circuit parameter for
-                the chosen parameterisation, if the `init_type` is selected as `'custom'`.
-                For example, for standard params set {'betas': [0.1, 0.2, 0.3], 'gammas': [0.1, 0.2, 0.3]}
+        qubit_register: `list`
+            Select the desired qubits to run the QAOA program. Meant to be used as a qubit
+            selector for qubits on a QPU. Defaults to a list from 0 to n-1 (n = number of qubits)
+        p: `int`
+            Depth `p` of the QAOA circuit
+        q: `int`
+            Analogue of `p` of the QAOA circuit in the Fourier parameterization
+        param_type: `str`
+            Choose the QAOA circuit parameterization. Currently supported parameterizations include:
+            `'standard'`: Standard QAOA parameterization
+            `'standard_w_bias'`: Standard QAOA parameterization with a separate parameter for single-qubit terms.
+            `'extended'`: Individual parameter for each qubit and each term in the Hamiltonian.
+            `'fourier'`: Fourier circuit parameterization
+            `'fourier_extended'`: Fourier circuit parameterization with individual parameter
+            for each qubit and term in Hamiltonian.
+            `'fourier_w_bias'`: Fourier circuit parameterization with a separate
+            parameter for single-qubit terms
+        init_type: `str`
+            Initialisation strategy for the QAOA circuit parameters. Allowed init_types:
+            `'rand'`: Randomly initialise circuit parameters
+            `'ramp'`: Linear ramp from Hamiltonian initialisation of circuit
+            parameters (inspired from Quantum Annealing)
+            `'custom'`: User specified initial circuit parameters
+        mixer_hamiltonian: `str`
+            Parameterisation of the mixer hamiltonian:
+            `'x'`: Randomly initialise circuit parameters
+            `'xy'`: Linear ramp from Hamiltonian initialisation of circuit
+        mixer_qubit_connectivity: `[Union[List[list],List[tuple], str]]`
+            The connectivity of the qubits in the mixer Hamiltonian. Use only if
+            `mixer_hamiltonian = xy`. The user can specify the connectivity as a list of lists,
+            a list of tuples, or a string chosen from ['full', 'chain', 'star'].
+        mixer_coeffs: `list`
+            The coefficients of the mixer Hamiltonian. By default all set to -1
+        annealing_time: `float`
+            Total time to run the QAOA program in the Annealing parameterization (digitised annealing)
+        linear_ramp_time: `float`
+            The slope(rate) of linear ramp initialisation of QAOA parameters.
+        variational_params_dict: `dict`
+            Dictionary object specifying the initial value of each circuit parameter for
+            the chosen parameterization, if the `init_type` is selected as `'custom'`.
+            For example, for standard params set {'betas': [0.1, 0.2, 0.3], 'gammas': [0.1, 0.2, 0.3]}
         """
 
-        for key in kwargs.keys():
+        for key, value in kwargs.items():
             if hasattr(self.circuit_properties, key):
                 pass
             else:
-                raise ValueError(
-                    f"Specified argument {key} is not supported by the circuit"
-                )
-
+                raise ValueError("Specified argument is not supported by the circuit")
         self.circuit_properties = CircuitProperties(**kwargs)
 
         return None
-
-    @check_compiled
-    def set_rqaoa_parameters(self, **kwargs):
-        """
-        Specify the parameters to run a desired RQAOA program.
-
-        Parameters
-        ----------
-        rqaoa_type: `int`
-            String specifying the RQAOA scheme under which eliminations are computed. The two methods are 'custom' and
-            'adaptive'. Defaults to 'custom'.
-        n_max: `int`
-            Maximum number of eliminations allowed at each step when using the adaptive method.
-        steps: `Union[list,int]`
-            Elimination schedule for the RQAOA algorithm. If an integer is passed, it sets the number of spins eliminated
-            at each step. If a list is passed, the algorithm will follow the list to select how many spins to eliminate
-            at each step. Note that the list needs enough elements to specify eliminations from the initial number of qubits
-            up to the cutoff value. If the list contains more, the algorithm will follow instructions until the cutoff value
-            is reached.
-        n_cutoff: `int`
-            Cutoff value at which the RQAOA algorithm obtains the solution classically.
-        original_hamiltonian: `Hamiltonian`
-            Hamiltonian encoding the original problem fed into the RQAOA algorithm.
-        counter: `int`
-            Variable to count the step in the schedule. If counter = 3 the next step is schedule[3].
-            Default is 0, but can be changed to start in the position of the schedule that one wants.
-        """
-
-        for key in kwargs.keys():
-            if hasattr(self.rqaoa_parameters, key):
-                pass
-            else:
-                raise ValueError(f"Specified argument {key} is not supported by RQAOA")
-
-        self.rqaoa_parameters = RqaoaParameters(**kwargs)
-
-        return None
-
-    def compile(self, problem: QUBO = None, verbose: bool = False):
-        """
-        Create a QAOA object and initialize it with the circuit properties, device, classical optimizer and
-        backend properties specified by the user.
-        This QAOA object will be used to run QAOA changing the problem to sove at each RQAOA step.
-        Here, the QAOA is compiled passing the problem statement, so to check that the compliation of
-        QAOA is correct. See the QAOA class.
-
-        .. note::
-            Compilation is necessary because it is the moment where the problem statement and
-            the QAOA instructions are used to build the actual QAOA circuit.
-
-        Parameters
-        ----------
-        problem: `Problem`
-            QUBO problem to be solved by RQAOA
-        verbose: bool
-            !NotYetImplemented! Set true to have a summary of QAOA first step to displayed after compilation
-        """
-
-        # we compile the method of the parent class to genereate the id
-        # and check the problem is a QUBO object and save it
-        super().compile(problem=problem)
-
-        # if type is custom and steps is an int, set steps correctly
-        if (
-            self.rqaoa_parameters.rqaoa_type == "custom"
-            and self.rqaoa_parameters.n_cutoff <= problem.n
-        ):
-            n_cutoff = self.rqaoa_parameters.n_cutoff
-            n_qubits = problem.n
-            counter = self.rqaoa_parameters.counter
-
-            # If schedule for custom RQAOA is not given, we create a schedule such that
-            # n = self.rqaoa_parameters.steps spins is eliminated at a time
-            if type(self.rqaoa_parameters.steps) is int:
-                self.rqaoa_parameters.steps = [self.rqaoa_parameters.steps] * (
-                    n_qubits - n_cutoff
-                )
-
-            # In case a schedule is given, ensure there are enough steps in the schedule
-            assert np.abs(n_qubits - n_cutoff - counter) <= sum(
-                self.rqaoa_parameters.steps
-            ), f"Schedule is incomplete, add {np.abs(n_qubits - n_cutoff - counter) - sum(self.rqaoa_parameters.steps)} more eliminations"
-
-        # Create the qaoa object with the properties
-        self.__q = WrappedQAOA(self.device)
-        self.__q.circuit_properties = self.circuit_properties
-        self.__q.backend_properties = self.backend_properties
-        self.__q.classical_optimizer = self.classical_optimizer
-        self.__q.exp_tags = self.exp_tags
-
-        # set the header of the qaoa object to be the same as the header of the rqaoa object
-        self.__q.header = self.header.copy()
-        self.__q.header[
-            "algorithm"
-        ] = "qaoa"  # change the algorithm name to qaoa, since this is a qaoa object
-
-        # connect to the QPU specified
-        self.device.check_connection()
-        # compile qaoa object
-        self.__q.compile(problem, verbose=verbose)
-
-        # set compiled boolean to true
-        self.compiled = True
-
-        return
-
-    def optimize(
-        self, dump: bool = False, dump_options: dict = {}, verbose: bool = False
-    ):
-        """
-        Performs optimization using RQAOA with the `custom` method or the `adaptive` method.
-        The elimination RQAOA loop will occur until the number of qubits is equal to the number of qubits specified in `n_cutoff`.
-        In each loop, the QAOA will be run, then the eliminations will be computed, a new problem will be redefined
-        and the QAOA will be recompiled with the new problem.
-        Once the loop is complete, the final problem will be solved classically and the final solution will be reconstructed.
-        Results will be stored in the `results` attribute.
-
-        Parameters
-        ----------
-        dump: `bool`
-            If true, the object will be dumped to a file. And at the end of each step,
-            the qaoa object will be dumped to a file.
-            Default is False.
-        dump_options: `dict`
-            Dictionary containing the options for the dump. To see the options,
-            see the `dump` method of the `QAOA` or `RQAOA` class.
-            Default is empty.
-        verbose: `bool`
-            TODO
-        """
-
-        # check if the object has been compiled (or already optimized)
-        assert (
-            self.compiled
-        ), "RQAOA object has not been compiled. Please run the compile method first."
-
-        # lists to append the eliminations, the problems, the qaoa results objects,
-        # the correlation matrix, the expectation values z and a dictionary for the atomic ids
-        elimination_tracker = []
-        q_results_steps = []
-        problem_steps = []
-        exp_vals_z_steps = []
-        corr_matrix_steps = []
-        atomic_id_steps = {}
-
-        # get variables
-        problem = self.problem
-        problem_metadata = self.problem.metadata
-        n_cutoff = self.rqaoa_parameters.n_cutoff
-        n_qubits = problem.n
-        counter = self.rqaoa_parameters.counter
-
-        # get the qaoa object
-        q = self.__q
-
-        # create a different max_terms function for each type
-        if self.rqaoa_parameters.rqaoa_type == "adaptive":
-            f_max_terms = rqaoa_utils.ada_max_terms
-        else:
-            f_max_terms = rqaoa_utils.max_terms
-
-        # timestamp for the start of the optimization
-        self.header["execution_time_start"] = generate_timestamp()
-
-        # flag, set to true if the problem vanishes due to elimination before reaching cutoff
-        total_elimination = False
-
-        # If above cutoff, loop quantumly, else classically
-        while n_qubits > n_cutoff:
-            # put a tag to the qaoa object to know which step it is
-            q.set_exp_tags({"rqaoa_counter": counter})
-
-            # Run QAOA
-            q.optimize()
-
-            # save the results if dump is true
-            if dump:
-                q.dump(**dump_options)
-
-            # Obtain statistical results
-            exp_vals_z, corr_matrix = self.__exp_val_hamiltonian_termwise(q)
-            # Retrieve highest expectation values according to adaptive method or schedule in custom method
-            max_terms_and_stats = f_max_terms(
-                exp_vals_z, corr_matrix, self.__n_step(n_qubits, n_cutoff, counter)
-            )
-            # Generate spin map
-            spin_map = rqaoa_utils.spin_mapping(problem, max_terms_and_stats)
-            # Eliminate spins and redefine problem
-            new_problem, spin_map = rqaoa_utils.redefine_problem(problem, spin_map)
-
-            # In case eliminations cancel out the whole graph, break the loop before reaching the predefined cutoff.
-            if new_problem == problem:
-                total_elimination = True
-                break
-
-            # Extract final set of eliminations with correct dependencies and update tracker
-            eliminations = [
-                {"singlet": (spin,), "bias": spin_map[spin][0]}
-                if spin_map[spin][1] is None
-                else {
-                    "pair": (spin_map[spin][1], spin),
-                    "correlation": spin_map[spin][0],
-                }
-                for spin in sorted(spin_map.keys())
-                if spin != spin_map[spin][1]
-            ]
-            elimination_tracker.append(eliminations)
-            # add the metadata to the problem
-            new_problem.metadata = problem_metadata
-
-            # Save qaoa object, correlation matrix and expectation values z
-            q_results_steps.append(q.result)
-            corr_matrix_steps.append(corr_matrix)
-            exp_vals_z_steps.append(exp_vals_z)
-            problem_steps.append(problem)
-            atomic_id_steps[counter] = q.header["atomic_id"]
-
-            # Extract new number of qubits
-            n_qubits = new_problem.n
-
-            # problem is updated
-            problem = new_problem
-
-            # Compile qaoa with the problem
-            q.compile(problem, verbose=False)
-
-            # Add one step to the counter
-            counter += 1
-            # TODO: do rqaoa dumps here if dump is true, so the user can still get the results in case the loop is interrupted.
-
-        if total_elimination:
-            # Solve the smallest non-vanishing problem by fixing spins arbitrarily or according to the correlations
-            cl_energy, cl_ground_states = rqaoa_utils.solution_for_vanishing_instances(
-                problem.hamiltonian, spin_map
-            )
-        else:
-            # Solve the new problem classically
-            cl_energy, cl_ground_states = ground_state_hamiltonian(problem.hamiltonian)
-
-        # Retrieve full solutions including eliminated spins and their energies
-        full_solutions = rqaoa_utils.final_solution(
-            elimination_tracker, cl_ground_states, self.problem.hamiltonian
-        )
-
-        # timestamp for the end of the optimization
-        self.header["execution_time_end"] = generate_timestamp()
-
-        # Compute description dictionary containing all the information
-        self.result = self.results_class()
-        self.result["solution"] = full_solutions
-        self.result["classical_output"] = {
-            "minimum_energy": cl_energy,
-            "optimal_states": cl_ground_states,
-        }
-        self.result["elimination_rules"] = elimination_tracker
-        self.result["schedule"] = [
-            len(eliminations) for eliminations in elimination_tracker
-        ]
-        self.result["number_steps"] = counter - self.rqaoa_parameters.counter
-        self.result["intermediate_steps"] = [
-            {
-                "counter": counter,
-                "problem": problem,
-                "qaoa_results": q_results,
-                "exp_vals_z": exp_vals_z,
-                "corr_matrix": corr_matrix,
-            }
-            for counter, problem, q_results, exp_vals_z, corr_matrix in zip(
-                range(self.rqaoa_parameters.counter, counter),
-                problem_steps,
-                q_results_steps,
-                exp_vals_z_steps,
-                corr_matrix_steps,
-            )
-        ]
-        self.result["atomic_ids"] = atomic_id_steps
-
-        # set compiled to false
-        self.compiled = False
-
-        # dump the object if dump is true
-        if dump:
-            self.dump(
-                **{**dump_options, **{"options": {"intermediate_measurements": False}}}
-            )
-
-        if verbose:
-            print(f"RQAOA optimization completed.")
-
-        return
-
-    def __exp_val_hamiltonian_termwise(self, q: QAOA):
-        """
-        Private method to call the exp_val_hamiltonian_termwise function taking the data from
-        the QAOA object _q.
-        It eturns what the exp_val_hamiltonian_termwise function returns.
-        """
-
-        variational_params = q.variate_params
-        qaoa_backend = q.backend
-        cost_hamiltonian = q.cost_hamil
-        mixer_type = q.circuit_properties.mixer_hamiltonian
-        p = q.circuit_properties.p
-        qaoa_optimized_angles = q.result.optimized["angles"]
-        qaoa_optimized_counts = q.result.get_counts(
-            q.result.optimized["measurement_outcomes"]
-        )
-        analytical = isinstance(qaoa_backend, QAOABackendAnalyticalSimulator)
-
-        return exp_val_hamiltonian_termwise(
-            cost_hamiltonian,
-            mixer_type,
-            p,
-            qaoa_optimized_angles,
-            qaoa_optimized_counts,
-            analytical=analytical,
-        )
-
-    def __n_step(self, n_qubits, n_cutoff, counter):
-        """
-        Private method that returns the n_max value in case of adaptive or the number of eliminations according
-        to the schedule and the counter in case of custom method.
-        """
-
-        if self.rqaoa_parameters.rqaoa_type == "adaptive":
-            # Number of spins to eliminate according the schedule
-            n = self.rqaoa_parameters.n_max
-        else:
-            # max Number of spins to eliminate
-            n = self.rqaoa_parameters.steps[counter]
-
-        # If the step eliminates more spins than available, reduce step to match cutoff
-        return (n_qubits - n_cutoff) if (n_qubits - n_cutoff) < n else n
-
-    def _serializable_dict(
-        self, complex_to_string: bool = False, intermediate_measurements: bool = True
-    ):
-        """
-        Returns all values and attributes of the object that we want to
-        return in `asdict` and `dump(s)` methods in a dictionary.
-
-        Parameters
-        ----------
-        complex_to_string: bool
-            If True, complex numbers are converted to strings.
-            If False, complex numbers are converted to lists of real and imaginary parts.
-
-        Returns
-        -------
-        serializable_dict: dict
-            Dictionary containing all the values and attributes of the object
-            that we want to return in `asdict` and `dump(s)` methods.
-        intermediate_measurements: bool
-            If True, intermediate measurements are included in the dump. If False,
-            intermediate measurements are not included in the dump.
-            Default is True.
-        """
-        # we call the _serializable_dict method of the parent class,
-        # specifying the keys to delete from the results dictionary
-        serializable_dict = super()._serializable_dict(
-            complex_to_string, intermediate_measurements
-        )
-
-        # we add the keys of the RQAOA object that we want to return
-        serializable_dict["data"]["input_parameters"]["circuit_properties"] = dict(
-            self.circuit_properties
-        )
-        serializable_dict["data"]["input_parameters"]["rqaoa_parameters"] = dict(
-            self.rqaoa_parameters
-        )
-
-        # include parameters in the header metadata
-        serializable_dict["header"]["metadata"]["param_type"] = serializable_dict[
-            "data"
-        ]["input_parameters"]["circuit_properties"]["param_type"]
-        serializable_dict["header"]["metadata"]["init_type"] = serializable_dict[
-            "data"
-        ]["input_parameters"]["circuit_properties"]["init_type"]
-        serializable_dict["header"]["metadata"]["p"] = serializable_dict["data"][
-            "input_parameters"
-        ]["circuit_properties"]["p"]
-
-        if (
-            serializable_dict["data"]["input_parameters"]["circuit_properties"]["q"]
-            is not None
-        ):
-            serializable_dict["header"]["metadata"]["q"] = serializable_dict["data"][
-                "input_parameters"
-            ]["circuit_properties"]["q"]
-
-        serializable_dict["header"]["metadata"]["rqaoa_type"] = serializable_dict[
-            "data"
-        ]["input_parameters"]["rqaoa_parameters"]["rqaoa_type"]
-        serializable_dict["header"]["metadata"]["rqaoa_n_max"] = serializable_dict[
-            "data"
-        ]["input_parameters"]["rqaoa_parameters"]["n_max"]
-        serializable_dict["header"]["metadata"]["rqaoa_n_cutoff"] = serializable_dict[
-            "data"
-        ]["input_parameters"]["rqaoa_parameters"]["n_cutoff"]
-
-        return serializable_dict
-
-
-class WrappedQAOA(QAOA):
-    """
-    A class implementing the QAOA object to use in RQAOA, here check_connection() is used outside of the QAOA
-    compilation to make sure it's only used once.
-
-    Args:
-        QAOA (_type_): _description_
-    """
-
-    def __init__(self, device=DeviceLocal("vectorized")):
-        super().__init__(device)
 
     def compile(
         self,
@@ -643,8 +192,8 @@ class WrappedQAOA(QAOA):
         routing_function: Optional[Callable] = None,
     ):
         """
-        Override of QAOA.compile(). Initialise the trainable parameters for QAOA according to the specified
-        strategies and by passing the problem statement. The device.compile() is called in RQAOA.compile() only.
+        Initialise the trainable parameters for QAOA according to the specified
+        strategies and by passing the problem statement
 
         .. note::
             Compilation is necessary because it is the moment where the problem statement and
@@ -669,9 +218,11 @@ class WrappedQAOA(QAOA):
 
         #     )
 
+        # connect to the QPU specified
+        self.device.check_connection()
         # we compile the method of the parent class to genereate the id and
         # check the problem is a QUBO object and save it
-        Workflow.compile(self, problem=problem)
+        super().compile(problem=problem)
 
         self.cost_hamil = Hamiltonian.classical_hamiltonian(
             terms=problem.terms, coeffs=problem.weights, constant=problem.constant
@@ -710,7 +261,7 @@ class WrappedQAOA(QAOA):
             **backend_dict,
         )
 
-        # Implementing SPAM Twirling error mitigation requires wrapping the backend.
+        # Implementing SPAM Twirling and MITIQs error mitigation requires wrapping the backend.
         # However, the BaseWrapper can have many more use cases.
         if (
             self.error_mitigation_properties.error_mitigation_technique
@@ -721,7 +272,19 @@ class WrappedQAOA(QAOA):
                 n_batches=self.error_mitigation_properties.n_batches,
                 calibration_data_location=self.error_mitigation_properties.calibration_data_location,
             )
-
+        elif(
+            self.error_mitigation_properties.error_mitigation_technique
+            == "mitiq_zne"
+        ):
+            self.backend = ZNEWrapper(
+                backend=self.backend,
+                factory=self.error_mitigation_properties.factory,
+                scaling=self.error_mitigation_properties.scaling,
+                scale_factors=self.error_mitigation_properties.scale_factors,
+                order=self.error_mitigation_properties.order,
+                steps=self.error_mitigation_properties.steps
+            )
+        
         self.optimizer = get_optimizer(
             vqa_object=self.backend,
             variational_params=self.variate_params,
@@ -769,3 +332,229 @@ class WrappedQAOA(QAOA):
                 )
 
         return None
+
+    def solve_brute_force(self, bounded=True, verbose=False):
+        """
+        A method to solve the QAOA problem using brute force i.e. by
+        evaluating the cost function at all possible bitstrings
+
+        Parameters
+        ----------
+        bounded: `bool`, optional
+            If set to True, the function will not perform computations for qubit
+            numbers above 25. If False, the user can specify any number. Defaults
+            to True.
+        verbose: `bool`, optional
+            If set to True, the function will print the results of the computation.
+            Defaults to False.
+        """
+
+        if self.compiled is False:
+            raise ValueError(
+                "Please compile the QAOA before running the brute force solver!"
+            )
+
+        # compute the exact ground state and ground state energy of the cost hamiltonian
+        energy, configuration = ground_state_hamiltonian(
+            self.cost_hamil, bounded=bounded
+        )
+
+        if verbose:
+            print(f"Ground State energy: {energy}, Solution: {configuration}")
+
+        self.brute_force_results = {
+            "energy": energy,
+            "configuration": configuration,
+        }
+
+        return None
+
+    def optimize(self, verbose=False):
+        """
+        A method running the classical optimisation loop
+        """
+
+        if self.compiled is False:
+            raise ValueError("Please compile the QAOA before optimizing it!")
+
+        # timestamp for the start of the optimization
+        self.header["execution_time_start"] = generate_timestamp()
+
+        self.optimizer.optimize()
+        # TODO: result and qaoa_result will differ
+        self.result = self.optimizer.qaoa_result
+
+        # timestamp for the end of the optimization
+        self.header["execution_time_end"] = generate_timestamp()
+
+        if verbose:
+            print("Optimization completed.")
+        return
+
+    def evaluate_circuit(
+        self,
+        params: Union[List[float], Dict[str, List[float]], QAOAVariationalBaseParams],
+    ):
+        """
+        A method to evaluate the QAOA circuit at a given set of parameters
+
+        Parameters
+        ----------
+        params: list or dict or QAOAVariationalBaseParams or None
+            List of parameters or dictionary of parameters. Which will be used to evaluate the QAOA circuit.
+            If None, the variational parameters of the QAOA object will be used.
+
+        Returns
+        -------
+        result: dict
+            A dictionary containing the results of the evaluation:
+            - "cost": the expectation value of the cost Hamiltonian
+            - "uncertainty": the uncertainty of the expectation value of the cost Hamiltonian
+            - "measurement_results": either the state of the QAOA circuit output (if the QAOA circuit is
+            evaluated on a state simulator) or the counts of the QAOA circuit output
+            (if the QAOA circuit is evaluated on a QPU or shot-based simulator)
+        """
+        # before evaluating the circuit we check that the QAOA object has been compiled
+        if self.compiled is False:
+            raise ValueError("Please compile the QAOA before optimizing it!")
+
+        # Check the type of the input parameters and save them as a
+        # QAOAVariationalBaseParams object at the variable `params_obj`
+
+        # if the parameters are passed as a dictionary we copy and update the variational parameters of the QAOA object
+        if isinstance(params, dict):
+            params_obj = deepcopy(self.variate_params)
+            # we check that the dictionary contains all the parameters of the QAOA object that are not empty
+            for key, value in params_obj.asdict().items():
+                if value.size > 0:
+                    assert (
+                        key in params.keys()
+                    ), f"The parameter `{key}` is missing from the input dictionary"
+            params_obj.update_from_dict(params)
+
+        # if the parameters are passed as a list we copy and update the variational parameters of the QAOA object
+        elif isinstance(params, list) or isinstance(params, np.ndarray):
+            assert len(params) == len(
+                self.variate_params
+            ), "The number of parameters does not match the number of parameters in the QAOA circuit"
+            params_obj = deepcopy(self.variate_params)
+            params_obj.update_from_raw(params)
+
+        # if the parameters are passed as a QAOAVariationalBaseParams object we just take it as it is
+        elif isinstance(params, QAOAVariationalBaseParams):
+            # check whether the input params object is supported for circuit evaluation
+            assert (
+                len(self.variate_params.mixer_1q_angles) == len(params.mixer_1q_angles)
+                and len(self.variate_params.mixer_2q_angles)
+                == len(self.variate_params.mixer_2q_angles)
+                and len(self.variate_params.cost_1q_angles)
+                == len(self.variate_params.cost_1q_angles)
+                and len(self.variate_params.cost_2q_angles)
+                == len(self.variate_params.cost_2q_angles)
+            ), "Specify a supported params object"
+            params_obj = params
+
+        # if the parameters are passed in a different format, we raise an error
+        else:
+            raise TypeError(
+                f"The input params must be a list or a dictionary. Instead, received {type(params)}"
+            )
+
+        # Evaluate the QAOA circuit and return the results
+        output_dict = {
+            "cost": None,
+            "uncertainty": None,
+            "measurement_results": None,
+        }
+        # if the backend is the analytical simulator, we just return the expectation value of the cost Hamiltonian
+        if isinstance(self.backend, QAOABackendAnalyticalSimulator):
+            output_dict.update({"cost": self.backend.expectation(params_obj)[0]})
+
+        # if the workflow implements SPAM Twirling,
+        # we just return the expectation value of the cost Hamiltonian and the measurement outcomes
+        elif isinstance(self.backend, SPAMTwirlingWrapper):
+            cost = self.backend.expectation(params_obj)
+            measurement_results = (
+                self.backend.measurement_outcomes
+                if isinstance(self.backend.measurement_outcomes, dict)
+                else self.backend.measurement_outcomes.tolist()
+            )
+            output_dict.update(
+                {
+                    "cost": cost,
+                    "measurement_results": measurement_results,
+                }
+            )
+            # in all other cases, we return the expectation value of the cost Hamiltonian,
+            # the associated uncertainty and the measurement outcomes
+        else:
+            cost, uncertainty = self.backend.expectation_w_uncertainty(params_obj)
+            measurement_results = (
+                self.backend.measurement_outcomes
+                if isinstance(self.backend.measurement_outcomes, dict)
+                else self.backend.measurement_outcomes.tolist()
+            )
+            output_dict.update(
+                {
+                    "cost": cost,
+                    "uncertainty": uncertainty,
+                    "measurement_results": measurement_results,
+                }
+            )
+        return output_dict
+
+    def _serializable_dict(
+        self, complex_to_string: bool = False, intermediate_measurements: bool = True
+    ):
+        """
+        Returns all values and attributes of the object that we want to return in
+        `asdict` and `dump(s)` methods in a dictionary.
+
+        Parameters
+        ----------
+        complex_to_string: bool
+            If True, complex numbers are converted to strings.
+            This is useful for JSON serialization.
+
+        Returns
+        -------
+        serializable_dict: dict
+            A dictionary containing all the values and attributes of the object
+            that we want to return in `asdict` and `dump(s)` methods.
+        intermediate_measurements: bool
+            If True, intermediate measurements are included in the dump.
+            If False, intermediate measurements are not included in the dump.
+            Default is True.
+        """
+
+        # we call the _serializable_dict method of the parent class,
+        # specifying the keys to delete from the results dictionary
+        serializable_dict = super()._serializable_dict(
+            complex_to_string, intermediate_measurements
+        )
+
+        # we add the keys of the QAOA object that we want to return
+        serializable_dict["data"]["input_parameters"]["circuit_properties"] = dict(
+            self.circuit_properties
+        )
+
+        # include parameters in the header metadata
+        serializable_dict["header"]["metadata"]["param_type"] = serializable_dict[
+            "data"
+        ]["input_parameters"]["circuit_properties"]["param_type"]
+        serializable_dict["header"]["metadata"]["init_type"] = serializable_dict[
+            "data"
+        ]["input_parameters"]["circuit_properties"]["init_type"]
+        serializable_dict["header"]["metadata"]["p"] = serializable_dict["data"][
+            "input_parameters"
+        ]["circuit_properties"]["p"]
+
+        if (
+            serializable_dict["data"]["input_parameters"]["circuit_properties"]["q"]
+            is not None
+        ):
+            serializable_dict["header"]["metadata"]["q"] = serializable_dict["data"][
+                "input_parameters"
+            ]["circuit_properties"]["q"]
+
+        return serializable_dict
