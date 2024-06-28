@@ -1,4 +1,4 @@
-# The simplest Open FQAOA workflow
+# The simplest Open QAOA workflow
 import networkx
 import numpy as np
 from openqaoa.problems import MinimumVertexCover
@@ -28,21 +28,27 @@ def portfolio(num_assets, Budget):
 from openqaoa.backends import create_device # for qiskit
 device = create_device('local', 'qiskit.statevector_simulator') # for qiskit
 
-# create a conventional FQAOA workflow
-from openqaoa import FQAOA
+# create a conventional QAOA workflow
+from openqaoa import QAOA
 # parameters for fqaoa
 num_assets = 10
 Budget = 5
 hopping = 1.0
-backend = 'qiskit'
-lattice = 'cyclic'
-# fqaoa workflow
-fqaoa = FQAOA()
-fqaoa.set_fqaoa_parameters(num_assets, Budget, hopping, lattice, backend)
-fqaoa.set_circuit_properties(p=2, init_type='ramp', mixer_qubit_connectivity=lattice)
-fqaoa.compile(portfolio(num_assets, Budget))
-fqaoa.optimize()
-# get resutls
-opt_results = fqaoa.result
+
+# fqaoa workflow using qiskit
+qaoa = QAOA(device)
+qaoa.set_circuit_properties(p=2, init_type='ramp')
+qaoa.compile(portfolio(num_assets, Budget))
+qaoa.optimize()
+opt_results = qaoa.result
 cost = opt_results.optimized['cost']
-print('cost using FQAOA on cyclic lattice', cost, 'compared to 27.028662')
+print('cost using QAOA', cost, 'compared to 1294.838616')
+
+# fqaoa workflow
+qaoa = QAOA()
+qaoa.set_circuit_properties(p=2, init_type='ramp')
+qaoa.compile(portfolio(num_assets, Budget))
+qaoa.optimize()
+opt_results = qaoa.result
+cost = opt_results.optimized['cost']
+print('cost using QAOA', cost, 'compared to 1294.838616')
