@@ -2,6 +2,9 @@ from typing import List, Callable, Optional, Union, Dict
 from copy import deepcopy
 import numpy as np
 
+# yoshioka
+from .fqaoa_initial import FQAOAMixer, FQAOAInitial, get_encoding
+
 from ..workflow_properties import CircuitProperties
 from ..baseworkflow import Workflow, check_compiled
 from ...backends import QAOABackendAnalyticalSimulator
@@ -23,7 +26,6 @@ from ...utilities import (
 )
 from ...optimizers.qaoa_optimizer import get_optimizer
 from ...backends.wrapper import SPAMTwirlingWrapper,ZNEWrapper
-
 
 class FQAOA(Workflow):
     """
@@ -120,8 +122,8 @@ class FQAOA(Workflow):
         super().__init__(device)
         self.circuit_properties = CircuitProperties()
 
-        # change header algorithm to qaoa
-        self.header["algorithm"] = "qaoa"
+        # change header algorithm to fqaoa
+        self.header["algorithm"] = "fqaoa"
 
     @check_compiled
     def set_circuit_properties(self, **kwargs):
@@ -178,7 +180,8 @@ class FQAOA(Workflow):
                 pass
             else:
                 raise ValueError("Specified argument is not supported by the circuit")
-        self.circuit_properties = CircuitProperties(**kwargs)
+        # yoshioka add mixer_hamiltonian and mixer_qubit_connectivity
+        self.circuit_properties = CircuitProperties(mixer_hamiltonian='xy', **kwargs)
 
         return None
 
@@ -555,3 +558,12 @@ class FQAOA(Workflow):
             ]["circuit_properties"]["q"]
 
         return serializable_dict
+
+    def set_fqaoa_parameters(
+            self, num_assets, Budget, hopping, mixer_qubit_connectivity, backend
+    ):
+        fqaoa_unit = FQAOAInitial(num_assets, Budget, hopping, mixer_qubit_connectivity, backend)
+        gtheta, circ = fqaoa_unit.get_initial_circuit()
+        super().set_backend_properties(prepend_state=circ, append_state=None, init_hadamard=False)
+        
+        return circ
