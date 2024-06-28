@@ -1,12 +1,13 @@
-from typing import List, Callable, Optional, Union, Dict
-from copy import deepcopy
-import numpy as np
+from typing import Callable, Optional
 
 # yoshioka
 from .fqaoa_initial import FQAOAMixer, FQAOAInitial, get_encoding
 
 from ..workflow_properties import CircuitProperties
 from ..baseworkflow import Workflow, check_compiled
+# yoshioka
+from ..qaoa import QAOA
+
 from ...backends import QAOABackendAnalyticalSimulator
 from ...backends.devices_core import DeviceLocal
 from ...backends.qaoa_backend import get_qaoa_backend
@@ -26,6 +27,7 @@ from ...utilities import (
 )
 from ...optimizers.qaoa_optimizer import get_optimizer
 from ...backends.wrapper import SPAMTwirlingWrapper,ZNEWrapper
+
 
 class FQAOA(Workflow):
     """
@@ -180,8 +182,9 @@ class FQAOA(Workflow):
                 pass
             else:
                 raise ValueError("Specified argument is not supported by the circuit")
+
         # yoshioka add mixer_hamiltonian and mixer_qubit_connectivity
-        self.circuit_properties = CircuitProperties(mixer_hamiltonian='xy', **kwargs)
+        self.circuit_properties = CircuitProperties(mixer_hamiltonian="xy", **kwargs)
 
         return None
 
@@ -333,42 +336,6 @@ class FQAOA(Workflow):
 
         return None
 
-    def solve_brute_force(self, bounded=True, verbose=False):
-        """
-        A method to solve the QAOA problem using brute force i.e. by
-        evaluating the cost function at all possible bitstrings
-
-        Parameters
-        ----------
-        bounded: `bool`, optional
-            If set to True, the function will not perform computations for qubit
-            numbers above 25. If False, the user can specify any number. Defaults
-            to True.
-        verbose: `bool`, optional
-            If set to True, the function will print the results of the computation.
-            Defaults to False.
-        """
-
-        if self.compiled is False:
-            raise ValueError(
-                "Please compile the QAOA before running the brute force solver!"
-            )
-
-        # compute the exact ground state and ground state energy of the cost hamiltonian
-        energy, configuration = ground_state_hamiltonian(
-            self.cost_hamil, bounded=bounded
-        )
-
-        if verbose:
-            print(f"Ground State energy: {energy}, Solution: {configuration}")
-
-        self.brute_force_results = {
-            "energy": energy,
-            "configuration": configuration,
-        }
-
-        return None
-
     def optimize(self, verbose=False):
         """
         A method running the classical optimisation loop
@@ -390,118 +357,6 @@ class FQAOA(Workflow):
         if verbose:
             print("Optimization completed.")
         return
-
-    def evaluate_circuit(
-        self,
-        params: Union[List[float], Dict[str, List[float]], QAOAVariationalBaseParams],
-    ):
-        """
-        A method to evaluate the QAOA circuit at a given set of parameters
-
-        Parameters
-        ----------
-        params: list or dict or QAOAVariationalBaseParams or None
-            List of parameters or dictionary of parameters. Which will be used to evaluate the QAOA circuit.
-            If None, the variational parameters of the QAOA object will be used.
-
-        Returns
-        -------
-        result: dict
-            A dictionary containing the results of the evaluation:
-            - "cost": the expectation value of the cost Hamiltonian
-            - "uncertainty": the uncertainty of the expectation value of the cost Hamiltonian
-            - "measurement_results": either the state of the QAOA circuit output (if the QAOA circuit is
-            evaluated on a state simulator) or the counts of the QAOA circuit output
-            (if the QAOA circuit is evaluated on a QPU or shot-based simulator)
-        """
-        # before evaluating the circuit we check that the QAOA object has been compiled
-        if self.compiled is False:
-            raise ValueError("Please compile the QAOA before optimizing it!")
-
-        # Check the type of the input parameters and save them as a
-        # QAOAVariationalBaseParams object at the variable `params_obj`
-
-        # if the parameters are passed as a dictionary we copy and update the variational parameters of the QAOA object
-        if isinstance(params, dict):
-            params_obj = deepcopy(self.variate_params)
-            # we check that the dictionary contains all the parameters of the QAOA object that are not empty
-            for key, value in params_obj.asdict().items():
-                if value.size > 0:
-                    assert (
-                        key in params.keys()
-                    ), f"The parameter `{key}` is missing from the input dictionary"
-            params_obj.update_from_dict(params)
-
-        # if the parameters are passed as a list we copy and update the variational parameters of the QAOA object
-        elif isinstance(params, list) or isinstance(params, np.ndarray):
-            assert len(params) == len(
-                self.variate_params
-            ), "The number of parameters does not match the number of parameters in the QAOA circuit"
-            params_obj = deepcopy(self.variate_params)
-            params_obj.update_from_raw(params)
-
-        # if the parameters are passed as a QAOAVariationalBaseParams object we just take it as it is
-        elif isinstance(params, QAOAVariationalBaseParams):
-            # check whether the input params object is supported for circuit evaluation
-            assert (
-                len(self.variate_params.mixer_1q_angles) == len(params.mixer_1q_angles)
-                and len(self.variate_params.mixer_2q_angles)
-                == len(self.variate_params.mixer_2q_angles)
-                and len(self.variate_params.cost_1q_angles)
-                == len(self.variate_params.cost_1q_angles)
-                and len(self.variate_params.cost_2q_angles)
-                == len(self.variate_params.cost_2q_angles)
-            ), "Specify a supported params object"
-            params_obj = params
-
-        # if the parameters are passed in a different format, we raise an error
-        else:
-            raise TypeError(
-                f"The input params must be a list or a dictionary. Instead, received {type(params)}"
-            )
-
-        # Evaluate the QAOA circuit and return the results
-        output_dict = {
-            "cost": None,
-            "uncertainty": None,
-            "measurement_results": None,
-        }
-        # if the backend is the analytical simulator, we just return the expectation value of the cost Hamiltonian
-        if isinstance(self.backend, QAOABackendAnalyticalSimulator):
-            output_dict.update({"cost": self.backend.expectation(params_obj)[0]})
-
-        # if the workflow implements SPAM Twirling,
-        # we just return the expectation value of the cost Hamiltonian and the measurement outcomes
-        elif isinstance(self.backend, SPAMTwirlingWrapper):
-            cost = self.backend.expectation(params_obj)
-            measurement_results = (
-                self.backend.measurement_outcomes
-                if isinstance(self.backend.measurement_outcomes, dict)
-                else self.backend.measurement_outcomes.tolist()
-            )
-            output_dict.update(
-                {
-                    "cost": cost,
-                    "measurement_results": measurement_results,
-                }
-            )
-            # in all other cases, we return the expectation value of the cost Hamiltonian,
-            # the associated uncertainty and the measurement outcomes
-        else:
-            cost, uncertainty = self.backend.expectation_w_uncertainty(params_obj)
-            measurement_results = (
-                self.backend.measurement_outcomes
-                if isinstance(self.backend.measurement_outcomes, dict)
-                else self.backend.measurement_outcomes.tolist()
-            )
-            output_dict.update(
-                {
-                    "cost": cost,
-                    "uncertainty": uncertainty,
-                    "measurement_results": measurement_results,
-                }
-            )
-        return output_dict
 
     def _serializable_dict(
         self, complex_to_string: bool = False, intermediate_measurements: bool = True
@@ -559,11 +414,160 @@ class FQAOA(Workflow):
 
         return serializable_dict
 
+    @check_compiled
     def set_fqaoa_parameters(
-            self, num_assets, Budget, hopping, mixer_qubit_connectivity, backend
+            self, n_qubits, n_fermions, hopping, lattice, backend
     ):
-        fqaoa_unit = FQAOAInitial(num_assets, Budget, hopping, mixer_qubit_connectivity, backend)
+        fqaoa_unit = FQAOAInitial(n_qubits, n_fermions, hopping, lattice, backend)
         gtheta, circ = fqaoa_unit.get_initial_circuit()
         super().set_backend_properties(prepend_state=circ, append_state=None, init_hadamard=False)
         
         return circ
+
+
+class WrappedQAOA(QAOA):
+    """
+    A class implementing the QAOA object to use in FQAOA, here check_connection() is used outside of the QAOA
+    compilation to make sure it's only used once.
+
+    Args:
+        QAOA (_type_): _description_
+    """
+
+    def __init__(self, device=DeviceLocal("vectorized")):
+        super().__init__(device)
+
+    def compile(
+        self,
+        problem: QUBO = None,
+        verbose: bool = False,
+        routing_function: Optional[Callable] = None,
+    ):
+        """
+        Override of QAOA.compile(). Initialise the trainable parameters for QAOA according to the specified
+        strategies and by passing the problem statement. The device.compile() is called in FQAOA.compile() only.
+
+        .. note::
+            Compilation is necessary because it is the moment where the problem statement and
+            the QAOA instructions are used to build the actual QAOA circuit.
+
+        .. tip::
+            Set Verbose to false if you are running batch computations!
+
+        Parameters
+        ----------
+        problem: `Problem`
+            QUBO problem to be solved by QAOA
+        verbose: bool
+            Set True to have a summary of QAOA to displayed after compilation
+        """
+        # if isinstance(routing_function,Callable):
+        #     #assert that routing_function is supported only for Standard QAOA.
+        #     if (
+        #         self.backend_properties.append_state is not None or\
+        #         self.backend_properties.prepend_state is not None or\
+        #         self.circuit_properties.mixer_hamiltonian is not 'x' or\
+
+        #     )
+
+        # we compile the method of the parent class to genereate the id and
+        # check the problem is a QUBO object and save it
+        Workflow.compile(self, problem=problem)
+
+        self.cost_hamil = Hamiltonian.classical_hamiltonian(
+            terms=problem.terms, coeffs=problem.weights, constant=problem.constant
+        )
+
+        self.mixer_hamil = get_mixer_hamiltonian(
+            n_qubits=self.cost_hamil.n_qubits,
+            mixer_type=self.circuit_properties.mixer_hamiltonian,
+            qubit_connectivity=self.circuit_properties.mixer_qubit_connectivity,
+            coeffs=self.circuit_properties.mixer_coeffs,
+        )
+
+        self.qaoa_descriptor = QAOADescriptor(
+            self.cost_hamil,
+            self.mixer_hamil,
+            p=self.circuit_properties.p,
+            routing_function=routing_function,
+            device=self.device,
+        )
+        self.variate_params = create_qaoa_variational_params(
+            qaoa_descriptor=self.qaoa_descriptor,
+            params_type=self.circuit_properties.param_type,
+            init_type=self.circuit_properties.init_type,
+            variational_params_dict=self.circuit_properties.variational_params_dict,
+            linear_ramp_time=self.circuit_properties.linear_ramp_time,
+            q=self.circuit_properties.q,
+            seed=self.circuit_properties.seed,
+            total_annealing_time=self.circuit_properties.annealing_time,
+        )
+
+        backend_dict = self.backend_properties.__dict__.copy()
+
+        self.backend = get_qaoa_backend(
+            qaoa_descriptor=self.qaoa_descriptor,
+            device=self.device,
+            **backend_dict,
+        )
+
+        # Implementing SPAM Twirling error mitigation requires wrapping the backend.
+        # However, the BaseWrapper can have many more use cases.
+        if (
+            self.error_mitigation_properties.error_mitigation_technique
+            == "spam_twirling"
+        ):
+            self.backend = SPAMTwirlingWrapper(
+                backend=self.backend,
+                n_batches=self.error_mitigation_properties.n_batches,
+                calibration_data_location=self.error_mitigation_properties.calibration_data_location,
+            )
+
+        self.optimizer = get_optimizer(
+            vqa_object=self.backend,
+            variational_params=self.variate_params,
+            optimizer_dict=self.classical_optimizer.asdict(),
+        )
+
+        # Set the header properties
+        self.header["target"] = self.device.device_name
+        self.header["cloud"] = self.device.device_location
+
+        metadata = {
+            "p": self.circuit_properties.p,
+            "param_type": self.circuit_properties.param_type,
+            "init_type": self.circuit_properties.init_type,
+            "optimizer_method": self.classical_optimizer.method,
+        }
+
+        self.set_exp_tags(tags=metadata)
+
+        self.compiled = True
+
+        if verbose:
+            print("\t \033[1m ### Summary ###\033[0m")
+            print("OpenQAOA has been compiled with the following properties")
+            print(
+                f"Solving QAOA with \033[1m {self.device.device_name} \033[0m on"
+                f"\033[1m{self.device.device_location}\033[0m"
+            )
+            print(
+                f"Using p={self.circuit_properties.p} with {self.circuit_properties.param_type}"
+                f"parameters initialized as {self.circuit_properties.init_type}"
+            )
+
+            if hasattr(self.backend, "n_shots"):
+                print(
+                    f"OpenQAOA will optimize using \033[1m{self.classical_optimizer.method}"
+                    f"\033[0m, with up to \033[1m{self.classical_optimizer.maxiter}"
+                    f"\033[0m maximum iterations. Each iteration will contain"
+                    f"\033[1m{self.backend_properties.n_shots} shots\033[0m"
+                )
+            else:
+                print(
+                    f"OpenQAOA will optimize using \033[1m{self.classical_optimizer.method}\033[0m,"
+                    "with up to \033[1m{self.classical_optimizer.maxiter}\033[0m maximum iterations"
+                )
+
+        return None
+    

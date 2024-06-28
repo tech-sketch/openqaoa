@@ -24,7 +24,7 @@ def portfolio(num_assets, Budget):
     ising_encoding_po = qubo_po.ising_model
     return ising_encoding_po
 
-# create_device
+# create a device
 from openqaoa.backends import create_device # for qiskit
 device = create_device('local', 'qiskit.statevector_simulator') # for qiskit
 
