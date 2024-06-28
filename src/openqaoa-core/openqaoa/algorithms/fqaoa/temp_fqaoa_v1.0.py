@@ -37,7 +37,7 @@ hopping = 1.0
 backend = 'qiskit'
 lattice = 'cyclic'
 # fqaoa workflow
-fqaoa = FQAOA()
+fqaoa = FQAOA(device)
 fqaoa.set_fqaoa_parameters(num_assets, Budget, hopping, lattice, backend)
 fqaoa.set_circuit_properties(p=2, init_type='ramp', mixer_qubit_connectivity=lattice)
 fqaoa.compile(portfolio(num_assets, Budget))
@@ -45,4 +45,5 @@ fqaoa.optimize()
 # get resutls
 opt_results = fqaoa.result
 cost = opt_results.optimized['cost']
-print('cost using FQAOA on cyclic lattice', cost, 'compared to 27.028662')
+print('cost using FQAOA on cyclic lattice: ', cost, 'compared to 27.028662')
+print('angles: ', opt_results.optimized['angles'])

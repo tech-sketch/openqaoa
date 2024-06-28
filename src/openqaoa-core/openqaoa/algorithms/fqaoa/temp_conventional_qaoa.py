@@ -36,19 +36,12 @@ Budget = 5
 hopping = 1.0
 
 # fqaoa workflow using qiskit
-qaoa = QAOA(device)
-qaoa.set_circuit_properties(p=2, init_type='ramp')
-qaoa.compile(portfolio(num_assets, Budget))
-qaoa.optimize()
-opt_results = qaoa.result
-cost = opt_results.optimized['cost']
-print('cost using QAOA', cost, 'compared to 1294.838616')
+for qaoa in [QAOA(device), QAOA()]:
+    qaoa.set_circuit_properties(p=2, init_type='ramp')
+    qaoa.compile(portfolio(num_assets, Budget))
+    qaoa.optimize()
+    opt_results = qaoa.result
+    cost = opt_results.optimized['cost']
+    print('cost using QAOA: ', cost, 'compared to 1294.838616')
+    print('angles: ', opt_results.optimized['angles'])
 
-# fqaoa workflow
-qaoa = QAOA()
-qaoa.set_circuit_properties(p=2, init_type='ramp')
-qaoa.compile(portfolio(num_assets, Budget))
-qaoa.optimize()
-opt_results = qaoa.result
-cost = opt_results.optimized['cost']
-print('cost using QAOA', cost, 'compared to 1294.838616')
