@@ -14,7 +14,7 @@ def portfolio(num_assets, Budget):
     sigma = np.cov(hist_exp)
     #Start the docplex model with Model("name of the model")
     from openqaoa.problems.converters import FromDocplex2IsingModel
-    mdl = Model('Portfolio Optimization')
+    mdl = Model('Portfolio-Optimization')
     x = np.array(mdl.binary_var_list(num_assets, name='asset'))
     objective_function = mu @ x - x.T @ sigma @ x
     mdl.maximize(objective_function)
@@ -33,14 +33,16 @@ from openqaoa import QAOA
 num_assets = 10
 Budget = 5
 hopping = 1.0
-
-# fqaoa workflow using qiskit
-for qaoa in [QAOA(device), QAOA()]:
+device_dict = {'qiskit': create_device(location='local', name='qiskit.statevector_simulator'),
+               'local': create_device(location='local', name='vectorized')}
+for backend, device in device_dict.items():
+    print('device: ', device.device_name)
+    qaoa = QAOA(device)
 #    qaoa.set_circuit_properties(p=2, init_type='ramp')
 #    qaoa.set_classical_optimizer(maxiter=100, method='cobyla')    
-    qaoa.set_circuit_properties(p=2, init_type='custom',
-                                 variational_params_dict = {'betas':[0.570521935602, 0.156383715232],
-                                                            'gammas':[0.130441590386, 1.527266213187]})
+    qaoa.set_circuit_properties(p=2, init_type='custom', variational_params_dict =
+                                {'betas':[0.570521935602, 0.156383715232],
+                                 'gammas':[0.130441590386, 1.527266213187]})
     qaoa.set_classical_optimizer(maxiter=0, method='cobyla')
     qaoa.compile(portfolio(num_assets, Budget))
     qaoa.optimize()

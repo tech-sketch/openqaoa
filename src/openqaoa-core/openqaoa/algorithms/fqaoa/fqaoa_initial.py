@@ -33,12 +33,12 @@ class FQAOAMixer:
         return eig
 
 class FQAOAInitial:
-    def __init__(self, n, num, hopping, mixer_qubit_connectivity, backend):
+    def __init__(self, n, num, hopping, mixer_qubit_connectivity, device_name):
         self.n = n
         self.num = num
         self.hopping = hopping
         self.mixer_qubit_connectivity = mixer_qubit_connectivity
-        self.backend = backend
+        self.device_name = device_name
 
         # encoding
         self.enc = get_encoding(n)
@@ -57,8 +57,8 @@ class FQAOAInitial:
 
     def get_statevector(self):
         phi0 = self.get_wave_function()
-        statevector = np.zeros(2**self.n, dtype = np.float64)
-        cof = np.zeros((self.num, self.num), dtype = np.float64) 
+        statevector = np.zeros(2**self.n, dtype = np.complex128)
+        cof = np.zeros((self.num, self.num), dtype = np.complex128) 
         for ibit in range(2**self.n):
             if bin(ibit)[2:].count('1') == self.num: # Conditions that satisfy the constraint conditions
                 bit_str = bin(ibit)[2:].zfill(self.n)
@@ -122,7 +122,7 @@ class FQAOAInitial:
         enc = self.enc
         gtheta = self.gtheta
 
-        if self.backend == 'braket':
+        if self.device_name == 'braket':
             circ = Circuit()
             for i in range(num):
                 circ.x(enc[i])
@@ -140,7 +140,7 @@ class FQAOAInitial:
                     circ.h(enc[icol])
                     circ.si(enc[icol-1])
                     circ.si(enc[icol])
-        if self.backend == 'qiskit':
+        if self.device_name == 'qiskit.statevector_simulator':
             circ = QuantumCircuit(n)
             for i in range(num):
                 circ.x(enc[i])
@@ -158,7 +158,7 @@ class FQAOAInitial:
                     circ.h(enc[icol])
                     circ.sdg(enc[icol-1])
                     circ.sdg(enc[icol])
-        return gtheta, circ
+        return circ
 
        
 
