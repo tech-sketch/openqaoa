@@ -1,7 +1,6 @@
 # The simplest Open QAOA workflow
 import networkx
 import numpy as np
-from openqaoa.problems import MinimumVertexCover
 
 # The portfolio optimization
 def portfolio(num_assets, Budget):
@@ -37,7 +36,12 @@ hopping = 1.0
 
 # fqaoa workflow using qiskit
 for qaoa in [QAOA(device), QAOA()]:
-    qaoa.set_circuit_properties(p=2, init_type='ramp')
+#    qaoa.set_circuit_properties(p=2, init_type='ramp')
+#    qaoa.set_classical_optimizer(maxiter=100, method='cobyla')    
+    qaoa.set_circuit_properties(p=2, init_type='custom',
+                                 variational_params_dict = {'betas':[0.570521935602, 0.156383715232],
+                                                            'gammas':[0.130441590386, 1.527266213187]})
+    qaoa.set_classical_optimizer(maxiter=0, method='cobyla')
     qaoa.compile(portfolio(num_assets, Budget))
     qaoa.optimize()
     opt_results = qaoa.result
