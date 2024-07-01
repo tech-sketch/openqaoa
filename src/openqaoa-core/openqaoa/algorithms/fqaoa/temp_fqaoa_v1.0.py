@@ -16,8 +16,8 @@ def portfolio(num_assets, Budget):
     from openqaoa.problems.converters import FromDocplex2IsingModel
     mdl = Model('Portfolio-Optimization')
     x = np.array(mdl.binary_var_list(num_assets, name='asset'))
-    objective_function = mu @ x - x.T @ sigma @ x
-    mdl.maximize(objective_function)
+    objective_function = - mu @ x + x.T @ sigma @ x
+    mdl.minimize(objective_function)
     mdl.add_constraint(x.sum() == Budget, ctname='budget')
     qubo_po = FromDocplex2IsingModel(mdl)
     ising_encoding_po = qubo_po.ising_model

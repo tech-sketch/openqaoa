@@ -16,8 +16,8 @@ def portfolio(num_assets, Budget):
     from openqaoa.problems.converters import FromDocplex2IsingModel
     mdl = Model('Portfolio-Optimization')
     x = np.array(mdl.binary_var_list(num_assets, name='asset'))
-    objective_function = mu @ x - x.T @ sigma @ x
-    mdl.maximize(objective_function)
+    objective_function = x.T @ sigma @ x - mu @ x
+    mdl.minimize(objective_function)
     mdl.add_constraint(x.sum() == Budget, ctname='budget')
     qubo_po = FromDocplex2IsingModel(mdl)
     ising_encoding_po = qubo_po.ising_model
@@ -38,12 +38,11 @@ device_dict = {'qiskit': create_device(location='local', name='qiskit.statevecto
 for backend, device in device_dict.items():
     print('device: ', device.device_name)
     qaoa = QAOA(device)
-#    qaoa.set_circuit_properties(p=2, init_type='ramp')
-#    qaoa.set_classical_optimizer(maxiter=100, method='cobyla')    
-    qaoa.set_circuit_properties(p=2, init_type='custom', variational_params_dict =
-                                {'betas':[0.570521935602, 0.156383715232],
-                                 'gammas':[0.130441590386, 1.527266213187]})
-    qaoa.set_classical_optimizer(maxiter=0, method='cobyla')
+    qaoa.set_circuit_properties(p=2, init_type='ramp')
+#    qaoa.set_circuit_properties(p=2, init_type='custom', variational_params_dict =
+#                                {'betas':[0.570521935602, 0.156383715232],
+#                                 'gammas':[0.130441590386, 1.527266213187]})
+#    qaoa.set_classical_optimizer(maxiter=0, method='cobyla')
     qaoa.compile(portfolio(num_assets, Budget))
     qaoa.optimize()
     opt_results = qaoa.result
