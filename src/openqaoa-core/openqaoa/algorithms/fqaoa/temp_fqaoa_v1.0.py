@@ -23,8 +23,6 @@ def portfolio(num_assets, Budget):
     ising_encoding_po = qubo_po.ising_model
     return ising_encoding_po
 
-# create a device
-
 # create a conventional FQAOA workflow
 from openqaoa import FQAOA
 from openqaoa.backends import create_device # for qiskit
@@ -38,9 +36,9 @@ device_dict = {'qiskit': create_device(location='local', name='qiskit.statevecto
 for backend, device in device_dict.items():
     print('device: ', device.device_name)    
     fqaoa = FQAOA(device)
-    fqaoa.set_fqaoa_parameters(num_assets, Budget, hopping, lattice)
+    fqaoa.set_fqaoa_parameters(n_qubits=num_assets,n_fermions=Budget)
     fqaoa.set_circuit_properties(p=2, init_type='ramp')
-#    fqaoa.set_classical_optimizer(maxiter=100, method='cobyla') #
+#    fqaoa.set_classical_optimizer(maxiter=100, method='cobyla') 
 #    fqaoa.set_circuit_properties(p=2, init_type='custom', variational_params_dict =
 #                                 {'betas':[0.585006801179, 0.266641182597],
 #                                  'gammas':[0.07350407864, 0.530566945246]})

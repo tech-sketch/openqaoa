@@ -417,13 +417,12 @@ class FQAOA(Workflow):
     # yoshioka make method
     @check_compiled
     def set_fqaoa_parameters(
-            self, n_qubits, n_fermions, hopping, lattice
+            self, n_qubits, n_fermions, hopping = 1.0, lattice = 'cyclic', **kwargs
     ):
         self.lattice = lattice
         device_name = self.device.device_name
         fqaoa_initial = FQAOAInitial(n_qubits, n_fermions, hopping, lattice, device_name)
-        # Local
-#        circ = fqaoa_initial.get_statevector()        
+
         if device_name == 'qiskit.statevector_simulator':
             circ = fqaoa_initial.get_initial_circuit()
         elif device_name == 'vectorized':
