@@ -1,7 +1,7 @@
 from typing import Callable, Optional
 
 # yoshioka
-from .fqaoa_initial import FQAOAMixer, FQAOAInitial, get_encoding
+from .fqaoa_utils import FQAOAMixer, FQAOAInitial, get_encoding
 
 from ..workflow_properties import CircuitProperties
 from ..baseworkflow import Workflow, check_compiled
@@ -185,6 +185,7 @@ class FQAOA(Workflow):
 
         # yoshioka add mixer_hamiltonian and mixer_qubit_connectivity
         self.circuit_properties = CircuitProperties(mixer_hamiltonian="xy", mixer_qubit_connectivity=self.lattice, **kwargs)
+#        self.circuit_properties = CircuitProperties(mixer_qubit_connectivity=self.lattice, **kwargs)
 
         return None
 
@@ -230,7 +231,8 @@ class FQAOA(Workflow):
         self.cost_hamil = Hamiltonian.classical_hamiltonian(
             terms=problem.terms, coeffs=problem.weights, constant=problem.constant
         )
-
+        
+        # yoshioka fix mixer_type 'xy'
         self.mixer_hamil = get_mixer_hamiltonian(
             n_qubits=self.cost_hamil.n_qubits,
             mixer_type=self.circuit_properties.mixer_hamiltonian,
