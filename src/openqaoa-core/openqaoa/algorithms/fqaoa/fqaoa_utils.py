@@ -11,59 +11,61 @@ def get_encoding(n):
     return enc
 
 class FQAOAMixer:
-    def __init__(self, n, num, hopping, mixer_qubit_connectivity):
-        self.n = n
-        self.num = num
+    def __init__(self, n_qubits, n_fermions, hopping, mixer_qubit_connectivity):
+        # 
+        self.n_qubits = n_qubits
+        self.n_fermions = n_fermions
         self.hopping = hopping
-
-        # make driver Hamiltonian
-        Hd = np.zeros((n, n))
-        for jw in range(1, self.n):
-            Hd[jw, jw-1] = 1.0
+        
+        # Is mixer hamiltonian already implemented in openqaoa?
+        # make mixer Hamiltonian
+        HM = np.zeros((n_qubits, n_qubits))
+        for jw in range(1, self.n_qubits):
+            HM[jw, jw-1] = 1.0
         # add periodic boundary condition for cyclic lattice
         if mixer_qubit_connectivity == 'cyclic':
-            Hd[n-1, 0] = -(-1.0)**num 
-        Hd = Hd*hopping
+            HM[n_qubits-1, 0] = -(-1.0)**n_fermions 
+        HM = HM*hopping
         
-        self.Hd = Hd
+        self.HM = HM
         
     def get_eigenvalue(self):
-        # diagonalize Hd
-        eig = linalg.eigh(self.Hd) # default setting lower = True
+        # diagonalize HM
+        eig = linalg.eigh(self.HM) # default setting lower = True
         return eig
 
 class FQAOAInitial:
-    def __init__(self, n, num, hopping, mixer_qubit_connectivity, device_name):
-        self.n = n
-        self.num = num
+    def __init__(self, n_qubits, n_fermions, hopping, mixer_qubit_connectivity, device_name):
+        self.n_qubits = n_qubits
+        self.n_fermions = n_fermions
         self.hopping = hopping
         self.mixer_qubit_connectivity = mixer_qubit_connectivity
         self.device_name = device_name
 
         # encoding
-        self.enc = get_encoding(n)
+        self.enc = get_encoding(n_qubits)
         
         # driver Hamiltonian
-        self.Hd = FQAOAMixer(n, num, self.hopping, self.mixer_qubit_connectivity) 
+        self.HM = FQAOAMixer(n_qubits, n_fermions, self.hopping, self.mixer_qubit_connectivity) 
         self.gtheta = self.get_givens_rotation_angle()
       
-    def get_wave_function(self):
-        phi0 = np.zeros((self.num, self.n), dtype = np.float64)
-        eig = self.Hd.get_eigenvalue()
-        for jw in range(self.n):
-            for k in range(self.num):
+    def get_fermi_orbitals(self):
+        phi0 = np.zeros((self.n_fermions, self.n_qubits), dtype = np.float64)
+        eig = self.HM.get_eigenvalue()
+        for jw in range(self.n_qubits):
+            for k in range(self.n_fermions):
                 phi0[k][jw] = eig[1][jw][k]
         return phi0
 
     def get_statevector(self):
-        phi0 = self.get_wave_function()
-        statevector = np.zeros(2**self.n, dtype = np.complex128)
-        cof = np.zeros((self.num, self.num), dtype = np.complex128) 
-        for ibit in range(2**self.n):
-            if bin(ibit)[2:].count('1') == self.num: # Conditions that satisfy the constraint conditions
-                bit_str = bin(ibit)[2:].zfill(self.n)
+        phi0 = self.get_fermi_orbitals()
+        statevector = np.zeros(2**self.n_qubits, dtype = np.complex128)
+        cof = np.zeros((self.n_fermions, self.n_fermions), dtype = np.complex128) 
+        for ibit in range(2**self.n_qubits):
+            if bin(ibit)[2:].count('1') == self.n_fermions: # Conditions that satisfy the constraint conditions
+                bit_str = bin(ibit)[2:].zfill(self.n_qubits)
                 for i, j in enumerate([j for j, bit in enumerate(reversed(bit_str)) if bit == '1']):
-                    for k in range(self.num):
+                    for k in range(self.n_fermions):
                         cof[k][i] = phi0[k][j]
                 statevector[ibit] = linalg.det(cof)
         if round(np.linalg.norm(statevector), 10) != 1:
@@ -72,34 +74,34 @@ class FQAOAInitial:
         return(statevector)
                 
     def get_givens_rotation_angle(self):
-        num = self.num
-        n = self.n
-        phi0 = self.get_wave_function()
+        n_fermions = self.n_fermions
+        n_qubits = self.n_qubits
+        phi0 = self.get_fermi_orbitals()
 
         # zeroed triangular region        
-        for it in range(num-1): # column to be zeroed n-1, n-2, ..., n-num+1
-            icol = n - 1 - it
-            for irot in range(num-1-it):
+        for it in range(n_fermions-1): # column to be zeroed n-1, n-2, ..., n-num+1
+            icol = n_qubits - 1 - it
+            for irot in range(n_fermions-1-it):
                 if phi0[irot+1][icol] == 0.0:
-                    for jw in range(n):
+                    for jw in range(n_qubits):
                         abc = phi0[irot][jw]
                         phi0[irot][jw] = phi0[irot+1][jw]
                         phi0[irot+1][jw] = abc
                 else:
                     rate = phi0[irot][icol]/phi0[irot+1][icol]
-                    for jw in range(n):
+                    for jw in range(n_qubits):
                         abc = phi0[irot][jw]
                         phi0[irot][jw]   = (abc-rate*phi0[irot+1][jw])/np.sqrt(1+rate**2)
                         phi0[irot+1][jw] = (phi0[irot+1][jw]+rate*abc)/np.sqrt(1+rate**2)
                     abc = 0.0
-                    for jw in range(n):
+                    for jw in range(n_qubits):
                         abc += phi0[irot][jw]**2
                         
         # diagonalize
         gtheta = []
         it = -1
-        for irow in range(num):
-            for icol in range(n-num+irow, 0+irow, -1):
+        for irow in range(n_fermions):
+            for icol in range(n_qubits-n_fermions+irow, 0+irow, -1):
                 it = it + 1
                 if phi0[irow][icol-1] == 0.0:
                     gtheta.append(np.pi/2.0)
@@ -109,7 +111,7 @@ class FQAOAInitial:
                     vk = -rate/np.sqrt(1+rate**2)
                     if   vk >= 0.0: gtheta.append(np.arccos(uk))
                     elif vk  < 0.0: gtheta.append(-np.arccos(uk))
-                for ik in range(num):
+                for ik in range(n_fermions):
                     abc = phi0[ik][icol-1] 
                     phi0[ik][icol-1] =  abc*np.cos(gtheta[it]) - phi0[ik][icol]*np.sin(gtheta[it])
                     phi0[ik][icol]   =  abc*np.sin(gtheta[it]) + phi0[ik][icol]*np.cos(gtheta[it])
@@ -117,47 +119,46 @@ class FQAOAInitial:
         return gtheta
         
     def get_initial_circuit(self):
-        n = self.n
-        num = self.num
-        enc = self.enc
+        n_qubits = self.n_qubits
+        n_fermions = self.n_fermions
         gtheta = self.gtheta
 
         if self.device_name == 'braket':
             circ = Circuit()
-            for i in range(num):
-                circ.x(enc[i])
-            it = (n-num)*num
-            for irow in range(num-1, -1, -1):
-                for icol in range(irow+1, n-num+irow+1):
+            for i in range(n_fermions):
+                circ.x(i)
+            it = (n_qubits-n_fermions)*n_fermions
+            for irow in range(n_fermions-1, -1, -1):
+                for icol in range(irow+1, n_qubits-n_fermions+irow+1):
                     it = it-1
-                    circ.s(enc[icol-1])
-                    circ.s(enc[icol])
-                    circ.h(enc[icol])
-                    circ.cnot(enc[icol], enc[icol-1])
-                    circ.ry(enc[icol-1], gtheta[it])
-                    circ.ry(enc[icol], gtheta[it])
-                    circ.cnot(enc[icol], enc[icol-1])
-                    circ.h(enc[icol])
-                    circ.si(enc[icol-1])
-                    circ.si(enc[icol])
+                    circ.s(icol-1)
+                    circ.s(icol)
+                    circ.h(icol)
+                    circ.cnot(icol, icol-1)
+                    circ.ry(icol-1, gtheta[it])
+                    circ.ry(icol, gtheta[it])
+                    circ.cnot(icol, icol-1)
+                    circ.h(icol)
+                    circ.si(icol-1)
+                    circ.si(icol)
         if self.device_name == 'qiskit.statevector_simulator':
-            circ = QuantumCircuit(n)
-            for i in range(num):
-                circ.x(enc[i])
-            it = (n-num)*num
-            for irow in range(num-1, -1, -1):
-                for icol in range(irow+1, n-num+irow+1):
+            circ = QuantumCircuit(n_qubits)
+            for i in range(n_fermions):
+                circ.x(i)
+            it = (n_qubits-n_fermions)*n_fermions
+            for irow in range(n_fermions-1, -1, -1):
+                for icol in range(irow+1, n_qubits-n_fermions+irow+1):
                     it = it-1
-                    circ.s(enc[icol-1])
-                    circ.s(enc[icol])
-                    circ.h(enc[icol])
-                    circ.cnot(enc[icol], enc[icol-1])
-                    circ.ry(gtheta[it], enc[icol-1])
-                    circ.ry(gtheta[it], enc[icol])
-                    circ.cnot(enc[icol], enc[icol-1])
-                    circ.h(enc[icol])
-                    circ.sdg(enc[icol-1])
-                    circ.sdg(enc[icol])
+                    circ.s(icol-1)
+                    circ.s(icol)
+                    circ.h(icol)
+                    circ.cnot(icol, icol-1)
+                    circ.ry(gtheta[it], icol-1)
+                    circ.ry(gtheta[it], icol)
+                    circ.cnot(icol, icol-1)
+                    circ.h(icol)
+                    circ.sdg(icol-1)
+                    circ.sdg(icol)
         return circ
 
        
