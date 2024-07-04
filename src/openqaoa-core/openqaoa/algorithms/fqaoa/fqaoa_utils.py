@@ -47,9 +47,9 @@ class FQAOAInitial:
         
         # driver Hamiltonian
         self.HM = FQAOAMixer(n_qubits, n_fermions, self.hopping, self.mixer_qubit_connectivity) 
-        self.gtheta = self.get_givens_rotation_angle()
+        self.gtheta = self._get_givens_rotation_angle()
       
-    def get_fermi_orbitals(self):
+    def _get_fermi_orbitals(self):
         phi0 = np.zeros((self.n_fermions, self.n_qubits), dtype = np.float64)
         eig = self.HM.get_eigenvalue()
         for jw in range(self.n_qubits):
@@ -58,7 +58,7 @@ class FQAOAInitial:
         return phi0
 
     def get_statevector(self):
-        phi0 = self.get_fermi_orbitals()
+        phi0 = self._get_fermi_orbitals()
         statevector = np.zeros(2**self.n_qubits, dtype = np.complex128)
         cof = np.zeros((self.n_fermions, self.n_fermions), dtype = np.complex128) 
         for ibit in range(2**self.n_qubits):
@@ -73,10 +73,10 @@ class FQAOAInitial:
             exit()
         return(statevector)
                 
-    def get_givens_rotation_angle(self):
+    def _get_givens_rotation_angle(self):
         n_fermions = self.n_fermions
         n_qubits = self.n_qubits
-        phi0 = self.get_fermi_orbitals()
+        phi0 = self._get_fermi_orbitals()
 
         # zeroed triangular region        
         for it in range(n_fermions-1): # column to be zeroed n-1, n-2, ..., n-num+1
