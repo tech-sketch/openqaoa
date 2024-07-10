@@ -1,14 +1,45 @@
 from braket.circuits import Circuit
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, QuantumRegister
+
+# yoshioka temp
+from typing import List, Union, Tuple
+from enum import Enum
+from openqaoa.qaoa_components.ansatz_constructor.gatemap import GateMap
+from openqaoa.qaoa_components.ansatz_constructor.gatemaplabel import GateMapType, GateMapLabel
+from openqaoa.qaoa_components.ansatz_constructor.gates import *
+from openqaoa_qiskit.backends.gates_qiskit import QiskitGateApplicator
 
 import numpy as np
 from scipy import linalg
 
-def get_encoding(n):
-    enc = []
-    for j in range(n): 
-        enc.append(j)
-    return enc
+class FermiInitialGateMap(GateMap):
+    def __init__(self, n_qubits: int, n_fermions: int, gtheta: list[float]):
+        self.n_qubits = n_qubits
+        self.n_fermions = n_fermions
+        self.gtheta = gtheta
+        self.gate_label = GateMapLabel(n_qubits=n_qubits, gatemap_type=GateMapType.FIXED)
+        
+    @property
+    def _decomposition_standard(self) -> List[Tuple]:
+        excitation = [(X, [i]) for i in range(self.n_fermions)]
+        givens_rotations = []
+        it = (self.n_qubits-self.n_fermions)*self.n_fermions
+        for irow in range(self.n_fermions-1, -1, -1):
+                for icol in range(irow+1, self.n_qubits-self.n_fermions+irow+1):
+                    it = it-1
+                    givens_rotations.append((RZ, [icol-1, RotationAngle(lambda x: x, self.gate_label, np.pi / 2)]))
+                    givens_rotations.append((RZ, [icol,   RotationAngle(lambda x: x, self.gate_label, np.pi / 2)]))
+                    givens_rotations.append((RY, [icol,   RotationAngle(lambda x: x, self.gate_label, np.pi / 2)]))
+                    givens_rotations.append((X, [icol]))
+                    givens_rotations.append((CX, [icol, icol-1]))
+                    givens_rotations.append((RY, [icol-1, RotationAngle(lambda x: x, self.gate_label, self.gtheta[it])]))
+                    givens_rotations.append((RY, [icol  , RotationAngle(lambda x: x, self.gate_label, self.gtheta[it])]))
+                    givens_rotations.append((CX, [icol, icol-1]))                    
+                    givens_rotations.append((RY, [icol,   RotationAngle(lambda x: x, self.gate_label, np.pi / 2)]))
+                    givens_rotations.append((X, [icol]))
+                    givens_rotations.append((RZ, [icol-1, RotationAngle(lambda x: x, self.gate_label, -np.pi / 2)]))
+                    givens_rotations.append((RZ, [icol,   RotationAngle(lambda x: x, self.gate_label, -np.pi / 2)]))
+        return [*excitation, *givens_rotations]
 
 class FQAOAMixer:
     def __init__(self, n_qubits, n_fermions, hopping, mixer_qubit_connectivity):
@@ -42,9 +73,6 @@ class FQAOAInitial:
         self.mixer_qubit_connectivity = mixer_qubit_connectivity
         self.device_name = device_name
 
-        # encoding
-        self.enc = get_encoding(n_qubits)
-        
         # driver Hamiltonian
         self.HM = FQAOAMixer(n_qubits, n_fermions, self.hopping, self.mixer_qubit_connectivity) 
         self.gtheta = self._get_givens_rotation_angle()
@@ -118,52 +146,17 @@ class FQAOAInitial:
 
         return gtheta
         
-    def get_initial_circuit(self):
+    def get_initial_circuit(self): 
         n_qubits = self.n_qubits
         n_fermions = self.n_fermions
         gtheta = self.gtheta
 
-        if self.device_name == 'braket':
-            circ = Circuit()
-            for i in range(n_fermions):
-                circ.x(i)
-            it = (n_qubits-n_fermions)*n_fermions
-            for irow in range(n_fermions-1, -1, -1):
-                for icol in range(irow+1, n_qubits-n_fermions+irow+1):
-                    it = it-1
-                    circ.s(icol-1)
-                    circ.s(icol)
-                    circ.h(icol)
-                    circ.cnot(icol, icol-1)
-                    circ.ry(icol-1, gtheta[it])
-                    circ.ry(icol, gtheta[it])
-                    circ.cnot(icol, icol-1)
-                    circ.h(icol)
-                    circ.si(icol-1)
-                    circ.si(icol)
-        if self.device_name == 'qiskit.statevector_simulator':
-            circ = QuantumCircuit(n_qubits)
-            for i in range(n_fermions):
-                circ.x(i)
-            it = (n_qubits-n_fermions)*n_fermions
-            for irow in range(n_fermions-1, -1, -1):
-                for icol in range(irow+1, n_qubits-n_fermions+irow+1):
-                    it = it-1
-                    circ.s(icol-1)
-                    circ.s(icol)
-                    circ.h(icol)
-                    circ.cnot(icol, icol-1)
-                    circ.ry(gtheta[it], icol-1)
-                    circ.ry(gtheta[it], icol)
-                    circ.cnot(icol, icol-1)
-                    circ.h(icol)
-                    circ.sdg(icol-1)
-                    circ.sdg(icol)
-        return circ
-
-       
-
-
-
-
+        FermiInitialGateMap(n_qubits, n_fermions, gtheta)
+        gate_applicator = QiskitGateApplicator()
+        parametric_circuit = QuantumCircuit(n_qubits)        
+        for each_tuple in FermiInitialGateMap(n_qubits, n_fermions, gtheta).decomposition('standard'):
+            gate = each_tuple[0](gate_applicator, *each_tuple[1])
+            gate.apply_gate(parametric_circuit)
+        print(parametric_circuit)
+        return parametric_circuit
 

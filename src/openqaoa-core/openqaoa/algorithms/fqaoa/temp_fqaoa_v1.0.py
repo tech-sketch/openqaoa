@@ -26,6 +26,7 @@ def portfolio(num_assets, Budget):
 # create a conventional FQAOA workflow
 from openqaoa import FQAOA
 from openqaoa.backends import create_device # for qiskit
+
 # parameters for fqaoa
 num_assets = 10
 Budget = 5
@@ -36,7 +37,7 @@ device_dict = {'qiskit': create_device(location='local', name='qiskit.statevecto
 for backend, device in device_dict.items():
     print('device: ', device.device_name)    
     fqaoa = FQAOA(device)
-    fqaoa.set_fqaoa_parameters(n_qubits=num_assets,n_fermions=Budget)
+    fqaoa.set_fqaoa_parameters(n_qubits=num_assets, n_fermions=Budget)
     fqaoa.set_circuit_properties(p=2, init_type='ramp')
 #    fqaoa.set_classical_optimizer(maxiter=100, method='cobyla') 
 #    fqaoa.set_circuit_properties(p=2, init_type='custom', variational_params_dict =
@@ -48,5 +49,8 @@ for backend, device in device_dict.items():
     # get resutls
     opt_results = fqaoa.result
     cost = opt_results.optimized['cost']
+    print('intermediate', opt_results.intermediate['cost'])
     print('cost using FQAOA on cyclic lattice: ', cost, 'compared to 27.028662')
     print('angles: ', opt_results.optimized['angles'])
+    print()
+    
