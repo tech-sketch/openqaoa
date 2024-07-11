@@ -1,12 +1,9 @@
-from typing import Callable, Optional
-
-# yoshioka
-from .fqaoa_utils import FQAOAMixer, FQAOAInitial
+from typing import Callable, Optional, Tuple
+from .fqaoa_devices import set_device
+from .fqaoa_utils import FQAOAInitial, FermiInitialGateMap
 
 from ..workflow_properties import CircuitProperties
 from ..baseworkflow import Workflow, check_compiled
-# yoshioka
-from ..qaoa import QAOA
 
 from ...backends import QAOABackendAnalyticalSimulator
 from ...backends.devices_core import DeviceLocal
@@ -31,7 +28,7 @@ from ...backends.wrapper import SPAMTwirlingWrapper,ZNEWrapper
 
 class FQAOA(Workflow):
     """
-    A class implementing a QAOA workflow end to end.
+    A class implementing a FQAOA workflow end to end.
 
     It's basic usage consists of
     1. Initialization
@@ -39,7 +36,7 @@ class FQAOA(Workflow):
     3. Optimization
 
     .. note::
-        The attributes of the QAOA class should be initialized using the set methods of QAOA.
+        The attributes of the FQAOA class should be initialized using the set methods of FQAOA.
         For example, to set the circuit's depth to 10 you should run `set_circuit_properties(p=10)`
 
     Attributes
@@ -47,11 +44,11 @@ class FQAOA(Workflow):
     device: `DeviceBase`
         Device to be used by the optimizer
     circuit_properties: `CircuitProperties`
-        The circuit properties of the QAOA workflow. Use to set depth `p`,
+        The circuit properties of the FQAOA workflow. Use to set depth `p`,
         choice of parameterization, parameter initialisation strategies, mixer hamiltonians.
         For a complete list of its parameters and usage please see the method `set_circuit_properties`
     backend_properties: `BackendProperties`
-        The backend properties of the QAOA workflow. Use to set the backend properties
+        The backend properties of the FQAOA workflow. Use to set the backend properties
         such as the number of shots and the cvar values.
         For a complete list of its parameters and usage please see the method `set_backend_properties`
     classical_optimizer: `ClassicalOptimizer`
@@ -124,11 +121,14 @@ class FQAOA(Workflow):
         super().__init__(device)
         self.circuit_properties = CircuitProperties()
 
-        # change header algorithm to fqaoa
+        if device.device_name == 'analytical_simulator':
+            raise ValueError("FQAOA cannot be performed on the analytical simulator.")
+        
         self.header["algorithm"] = "fqaoa"
+        
 
     @check_compiled
-    def set_circuit_properties(self, **kwargs):
+    def set_circuit_properties(self, mixer_qubit_connectivity='cyclic', **kwargs):
         """
         Specify the circuit properties to construct QAOA circuit
 
@@ -184,14 +184,17 @@ class FQAOA(Workflow):
                 raise ValueError("Specified argument is not supported by the circuit")
 
         # yoshioka add mixer_hamiltonian and mixer_qubit_connectivity
+        # FQAOA fix some parameters
+        if mixer_qubit_connectivity not in ['cyclic', 'chain']:
+            raise ValueError("Invalid value for lattice. Allowed values are one-dimensional 'cyclic' and 'chain'.")
+        self.lattice = mixer_qubit_connectivity
         self.circuit_properties = CircuitProperties(mixer_hamiltonian="xy", mixer_qubit_connectivity=self.lattice, **kwargs)
-#        self.circuit_properties = CircuitProperties(mixer_qubit_connectivity=self.lattice, **kwargs)
 
         return None
 
     def compile(
         self,
-        problem: QUBO = None,
+        problem: Optional[Tuple[QUBO, int]] = None,
         verbose: bool = False,
         routing_function: Optional[Callable] = None,
     ):
@@ -213,31 +216,31 @@ class FQAOA(Workflow):
         verbose: bool
             Set True to have a summary of QAOA to displayed after compilation
         """
-        # if isinstance(routing_function,Callable):
-        #     #assert that routing_function is supported only for Standard QAOA.
-        #     if (
-        #         self.backend_properties.append_state is not None or\
-        #         self.backend_properties.prepend_state is not None or\
-        #         self.circuit_properties.mixer_hamiltonian is not 'x' or\
-
-        #     )
-
-        # connect to the QPU specified
+        
         self.device.check_connection()
         # we compile the method of the parent class to genereate the id and
         # check the problem is a QUBO object and save it
-        super().compile(problem=problem)
+        super().compile(problem=problem[0])
 
         self.cost_hamil = Hamiltonian.classical_hamiltonian(
-            terms=problem.terms, coeffs=problem.weights, constant=problem.constant
+            terms=problem[0].terms, coeffs=problem[0].weights, constant=problem[0].constant
         )
+        
+        self.n_qubits = self.cost_hamil.n_qubits
+        self.n_fermions = problem[1]
         
         # yoshioka fix mixer_type 'xy'
         self.mixer_hamil = get_mixer_hamiltonian(
-            n_qubits=self.cost_hamil.n_qubits,
+            n_qubits=self.n_qubits,
             mixer_type=self.circuit_properties.mixer_hamiltonian,
-            qubit_connectivity=self.circuit_properties.mixer_qubit_connectivity,
+            qubit_connectivity=self.lattice,
             coeffs=self.circuit_properties.mixer_coeffs,
+        )
+        # yoshioka
+        # parameters used in methods
+        self.set_fqaoa_parameters(
+            n_qubits=self.n_qubits,
+            n_fermions=self.n_fermions,
         )
 
         self.qaoa_descriptor = QAOADescriptor(
@@ -416,26 +419,63 @@ class FQAOA(Workflow):
 
         return serializable_dict
 
-    # yoshioka make method
+    # yoshioka add method
     @check_compiled
     def set_fqaoa_parameters(
             self,
-            n_qubits,
-            n_fermions,
-            hopping = 1.0,
-            lattice = 'cyclic',
+            n_qubits: int,
+            n_fermions: int,
+            hopping: float = 1.0,
             **kwargs
     ):
-        self.lattice = lattice
-        device_name = self.device.device_name
-        fqaoa_initial = FQAOAInitial(n_qubits, n_fermions, hopping, lattice, device_name)
+        """
+        Set parameters for the FQAOA (Fermionic Quantum Approximate Optimization Algorithm).
 
-        if device_name == 'vectorized':
-            state = fqaoa_initial.get_statevector()
+        Initializes the FQAOAInitial object with the specified parameters and lattice.
+        Depending on the device type, retrieves the initial state vector or quantum circuit,
+        and sets up backend properties accordingly.
+
+        Args:
+            n_qubits (int): Number of qubits targeted by the algorithm.
+                This parameter determines the size of the quantum circuit.
+            n_fermions (int): Number of fermionic modes or orbitals in the system.
+                Specifies the complexity of the fermionic Hamiltonian.
+            hopping (float, optional): Hopping parameter for the fermionic Hamiltonian (default is 1.0).
+                Influences the structure and behavior of the quantum simulation.
+            **kwargs: Additional keyword arguments for specifying algorithm parameters.
+
+        Returns:
+            None: This method does not return any value.
+        """
+        
+        self.fqaoa_initial = FQAOAInitial(n_qubits, n_fermions, hopping, self.lattice)
+
+        device_name = self.device.device_name        
+        if device_name in 'vectorized':
+            state = self.fqaoa_initial.get_statevector()
         else:
-            state = fqaoa_initial.get_initial_circuit()
-
-        super().set_backend_properties(prepend_state=state, append_state=None, init_hadamard=False)        
+            state = self.get_initial_circuit()
+            
+        self.backend_properties.prepend_state=state
+        self.backend_properties.append_state=None
+        self.backend_properties.init_hadamard=False
         
         return None
 
+    def get_initial_circuit(self):
+        """
+        Generate the initial parametric quantum circuit.
+
+        Returns
+        -------
+        QuantumCircuit
+            Quantum circuit for initial state preparation.
+        """
+
+        gtheta = self.fqaoa_initial.get_givens_rotation_angle()
+        initial_circuit, gate_applicator = set_device(self.device.device_location, self.n_qubits)
+        for each_tuple in FermiInitialGateMap(self.n_qubits, self.n_fermions, gtheta).decomposition('standard'):
+            gate = each_tuple[0](gate_applicator, *each_tuple[1])
+            gate.apply_gate(initial_circuit)
+        return initial_circuit
+    

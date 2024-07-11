@@ -21,7 +21,7 @@ def portfolio(num_assets, Budget):
     mdl.add_constraint(x.sum() == Budget, ctname='budget')
     qubo_po = FromDocplex2IsingModel(mdl)
     ising_encoding_po = qubo_po.ising_model
-    return ising_encoding_po
+    return ising_encoding_po, Budget
 
 # create a conventional FQAOA workflow
 from openqaoa import FQAOA
@@ -31,26 +31,24 @@ from openqaoa.backends import create_device # for qiskit
 num_assets = 10
 Budget = 5
 hopping = 1.0
-lattice = 'cyclic'
-device_dict = {'qiskit': create_device(location='local', name='qiskit.statevector_simulator'),
-               'local': create_device(location='local', name='vectorized')}
-for backend, device in device_dict.items():
+device_list = [create_device(location='local', name='qiskit.statevector_simulator'),
+               create_device(location='local', name='qiskit.qasm_simulator'),
+               create_device(location='local', name='qiskit.shot_simulator'),
+               create_device(location='local', name='vectorized'),
+               create_device(location='local', name='analytical_simulator')]
+for device in device_list:
     print('device: ', device.device_name)    
     fqaoa = FQAOA(device)
-    fqaoa.set_fqaoa_parameters(n_qubits=num_assets, n_fermions=Budget)
     fqaoa.set_circuit_properties(p=2, init_type='ramp')
-#    fqaoa.set_classical_optimizer(maxiter=100, method='cobyla') 
-#    fqaoa.set_circuit_properties(p=2, init_type='custom', variational_params_dict =
-#                                 {'betas':[0.585006801179, 0.266641182597],
-#                                  'gammas':[0.07350407864, 0.530566945246]})
-#    fqaoa.set_classical_optimizer(maxiter=0, method='cobyla') #    
+# optional: fqaoa.set_circuit_properties(p=2, init_type='ramp', mixer_qubit_connectivity='chain')
+# optional: fqaoa.set_classical_optimizer(method='bfgs', jac="finite_difference")
+# optional: fqaoa.set_backend_properties(n_shots = 100, seed_simulator = 1)
     fqaoa.compile(portfolio(num_assets, Budget))
     fqaoa.optimize()
-    # get resutls
     opt_results = fqaoa.result
     cost = opt_results.optimized['cost']
     print('intermediate', opt_results.intermediate['cost'])
-    print('cost using FQAOA on cyclic lattice: ', cost, 'compared to 27.028662')
+    print('cost using FQAOA: ', cost, 'compared to 27.028662')
     print('angles: ', opt_results.optimized['angles'])
     print()
     

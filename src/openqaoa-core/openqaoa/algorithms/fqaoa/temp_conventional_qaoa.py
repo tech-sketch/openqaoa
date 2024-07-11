@@ -33,9 +33,9 @@ from openqaoa import QAOA
 num_assets = 10
 Budget = 5
 hopping = 1.0
-device_dict = {'qiskit': create_device(location='local', name='qiskit.statevector_simulator'),
-               'local': create_device(location='local', name='vectorized')}
-for backend, device in device_dict.items():
+device_list = [create_device(location='local', name='qiskit.statevector_simulator'),
+               create_device(location='local', name='vectorized')]
+for device in device_list:
     print('device: ', device.device_name)
     qaoa = QAOA(device)
     qaoa.set_circuit_properties(p=2, init_type='ramp')
