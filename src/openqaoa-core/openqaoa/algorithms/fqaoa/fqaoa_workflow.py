@@ -81,11 +81,11 @@ class FQAOA(Workflow):
     Examples should be written in doctest format, and should illustrate how
     to use the function.
 
-    >>> q = QAOA()
-    >>> q.compile(QUBO)
+    >>> q = FQAOA()
+    >>> q.compile(PO)
     >>> q.optimize()
 
-    Where `QUBO` is a an instance of `openqaoa.problems.problem.QUBO`
+    Where `PO` is a an instance of portfolio optimization (PO), which is `openqaoa.problems.problem.QUBO` under constraint
 
     If you want to use non-default parameters:
 
@@ -120,6 +120,9 @@ class FQAOA(Workflow):
         """
         super().__init__(device)
         self.circuit_properties = CircuitProperties()
+        # FQAOA default settig
+        self.circuit_properties.mixer_hamiltonian = "xy"
+        self.circuit_properties.mixer_qubit_connectivity = "cyclic"
 
         if device.device_name == 'analytical_simulator':
             raise ValueError("FQAOA cannot be performed on the analytical simulator.")
@@ -128,7 +131,7 @@ class FQAOA(Workflow):
         
 
     @check_compiled
-    def set_circuit_properties(self, mixer_qubit_connectivity='cyclic', **kwargs):
+    def set_circuit_properties(self, mixer_hamiltonian="xy", mixer_qubit_connectivity="cyclic", **kwargs):
         """
         Specify the circuit properties to construct QAOA circuit
 
@@ -158,17 +161,16 @@ class FQAOA(Workflow):
             parameters (inspired from Quantum Annealing)
             `'custom'`: User specified initial circuit parameters
         mixer_hamiltonian: `str`
-            Parameterisation of the mixer hamiltonian:
-            `'x'`: Randomly initialise circuit parameters
-            `'xy'`: Linear ramp from Hamiltonian initialisation of circuit
-        mixer_qubit_connectivity: `[Union[List[list],List[tuple], str]]`
+            Allowed mixer hamiltonian:
+            `'xy'`: xy-mixer
+        mixer_qubit_connectivity: `[Union[List[list],List[tuple], str]]` By default set to 'cyclic'
             The connectivity of the qubits in the mixer Hamiltonian. Use only if
             `mixer_hamiltonian = xy`. The user can specify the connectivity as a list of lists,
-            a list of tuples, or a string chosen from ['full', 'chain', 'star'].
+            a list of tuples, or a string chosen from ['cyclic', 'chain'].
         mixer_coeffs: `list`
             The coefficients of the mixer Hamiltonian. By default all set to -1
         annealing_time: `float`
-            Total time to run the QAOA program in the Annealing parameterization (digitised annealing)
+            Total time to run the FQAOA program in the Annealing parameterization (digitised annealing)
         linear_ramp_time: `float`
             The slope(rate) of linear ramp initialisation of QAOA parameters.
         variational_params_dict: `dict`
@@ -182,19 +184,20 @@ class FQAOA(Workflow):
                 pass
             else:
                 raise ValueError("Specified argument is not supported by the circuit")
-
+        self.circuit_properties = CircuitProperties(mixer_hamiltonian=mixer_hamiltonian, mixer_qubit_connectivity=mixer_qubit_connectivity, **kwargs)
+        
         # yoshioka add mixer_hamiltonian and mixer_qubit_connectivity
         # FQAOA fix some parameters
+        if mixer_hamiltonian != "xy":
+            raise ValueError(f"Invalid mixer '{mixer_hamiltonian}' provided. Only 'xy' mixer is supported in FQAOA.")
         if mixer_qubit_connectivity not in ['cyclic', 'chain']:
             raise ValueError("Invalid value for lattice. Allowed values are one-dimensional 'cyclic' and 'chain'.")
-        self.lattice = mixer_qubit_connectivity
-        self.circuit_properties = CircuitProperties(mixer_hamiltonian="xy", mixer_qubit_connectivity=self.lattice, **kwargs)
 
         return None
 
     def compile(
         self,
-        problem: Optional[Tuple[QUBO, int]] = None,
+        po_problem: Optional[Tuple[QUBO, int]] = None,
         verbose: bool = False,
         routing_function: Optional[Callable] = None,
     ):
@@ -211,29 +214,27 @@ class FQAOA(Workflow):
 
         Parameters
         ----------
-        problem: `Problem`
-            QUBO problem to be solved by QAOA
+        po_problem: `Problem`
+            portfolio optimization problem to be solved by QAOA
         verbose: bool
             Set True to have a summary of QAOA to displayed after compilation
         """
         
         self.device.check_connection()
-        # we compile the method of the parent class to genereate the id and
-        # check the problem is a QUBO object and save it
-        super().compile(problem=problem[0])
+        super().compile(problem=po_problem[0])
 
         self.cost_hamil = Hamiltonian.classical_hamiltonian(
-            terms=problem[0].terms, coeffs=problem[0].weights, constant=problem[0].constant
+            terms=po_problem[0].terms, coeffs=po_problem[0].weights, constant=po_problem[0].constant
         )
         
         self.n_qubits = self.cost_hamil.n_qubits
-        self.n_fermions = problem[1]
+        self.n_fermions = po_problem[1]
         
         # yoshioka fix mixer_type 'xy'
         self.mixer_hamil = get_mixer_hamiltonian(
             n_qubits=self.n_qubits,
             mixer_type=self.circuit_properties.mixer_hamiltonian,
-            qubit_connectivity=self.lattice,
+            qubit_connectivity=self.circuit_properties.mixer_qubit_connectivity,
             coeffs=self.circuit_properties.mixer_coeffs,
         )
         # yoshioka
@@ -448,7 +449,8 @@ class FQAOA(Workflow):
             None: This method does not return any value.
         """
         
-        self.fqaoa_initial = FQAOAInitial(n_qubits, n_fermions, hopping, self.lattice)
+        lattice = self.circuit_properties.mixer_qubit_connectivity        
+        self.fqaoa_initial = FQAOAInitial(n_qubits, n_fermions, hopping, lattice)
 
         device_name = self.device.device_name        
         if device_name in 'vectorized':
