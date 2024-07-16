@@ -1,5 +1,4 @@
 from typing import Callable, Optional, Tuple
-from .fqaoa_devices import set_device
 from .fqaoa_utils import FQAOAInitial, FermiInitialGateMap
 
 from ..workflow_properties import CircuitProperties
@@ -237,12 +236,6 @@ class FQAOA(Workflow):
             qubit_connectivity=self.circuit_properties.mixer_qubit_connectivity,
             coeffs=self.circuit_properties.mixer_coeffs,
         )
-        # yoshioka
-        # parameters used in methods
-        self.set_fqaoa_parameters(
-            n_qubits=self.n_qubits,
-            n_fermions=self.n_fermions,
-        )
 
         self.qaoa_descriptor = QAOADescriptor(
             self.cost_hamil,
@@ -262,8 +255,33 @@ class FQAOA(Workflow):
             total_annealing_time=self.circuit_properties.annealing_time,
         )
 
+        # yoshioka
+        self.backend_properties.append_state=None
+        self.backend_properties.init_hadamard=False
         backend_dict = self.backend_properties.__dict__.copy()
+        self.backend = get_qaoa_backend(
+            qaoa_descriptor=self.qaoa_descriptor,
+            device = self.device,
+            **backend_dict,)
 
+        lattice = self.circuit_properties.mixer_qubit_connectivity
+        self.fqaoa_initial = FQAOAInitial(n_qubits = self.n_qubits, n_fermions = self.n_fermions, lattice = lattice)
+        device_name = self.device.device_name
+        if device_name in 'vectorized':
+            state = self.fqaoa_initial.get_statevector()
+        else:
+            gtheta = self.fqaoa_initial.get_givens_rotation_angle()
+            gate_applicator = self.backend.gate_applicator
+            initial_circuit = self.backend.gate_applicator.create_quantum_circuit(self.n_qubits)
+            for each_tuple in FermiInitialGateMap(self.n_qubits, self.n_fermions, gtheta).decomposition('standard'):
+                gate = each_tuple[0](gate_applicator, *each_tuple[1])
+                gate.apply_gate(initial_circuit)
+            state = initial_circuit
+            
+        self.backend_properties.prepend_state=state
+        
+        backend_dict = self.backend_properties.__dict__.copy()
+        print('print(device)', self.device)
         self.backend = get_qaoa_backend(
             qaoa_descriptor=self.qaoa_descriptor,
             device=self.device,
@@ -449,7 +467,8 @@ class FQAOA(Workflow):
             None: This method does not return any value.
         """
         
-        lattice = self.circuit_properties.mixer_qubit_connectivity        
+        lattice = self.circuit_properties.mixer_qubit_connectivity
+        hopping = 1.0
         self.fqaoa_initial = FQAOAInitial(n_qubits, n_fermions, hopping, lattice)
 
         device_name = self.device.device_name        
@@ -458,11 +477,8 @@ class FQAOA(Workflow):
         else:
             state = self.get_initial_circuit()
             
-        self.backend_properties.prepend_state=state
-        self.backend_properties.append_state=None
-        self.backend_properties.init_hadamard=False
-        
-        return None
+       
+        return state
 
     def get_initial_circuit(self):
         """

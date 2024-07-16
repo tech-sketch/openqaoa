@@ -130,7 +130,11 @@ class FQAOAInitial:
         Generate the quatum circuit for initial state preparation.
     """
     
-    def __init__(self, n_qubits, n_fermions, hopping, lattice):
+    def __init__(self,
+                 n_qubits: int,
+                 n_fermions: int,
+                 lattice: str,
+                 hopping: float = 1.0,):
         self.n_qubits = n_qubits
         self.n_fermions = n_fermions
         self.hopping = hopping

@@ -39,7 +39,7 @@ device_list = [create_device(location='local', name='qiskit.statevector_simulato
 for device in device_list:
     print('device: ', device.device_name)    
     fqaoa = FQAOA(device)
-#    fqaoa.set_circuit_properties(p=2, init_type='ramp')
+    fqaoa.set_circuit_properties(p=2, init_type='ramp')
 # optional: fqaoa.set_circuit_properties(p=2, init_type='ramp', mixer_qubit_connectivity='chain')
 # optional: fqaoa.set_classical_optimizer(method='bfgs', jac="finite_difference")
 # optional: fqaoa.set_backend_properties(n_shots = 100, seed_simulator = 1)
