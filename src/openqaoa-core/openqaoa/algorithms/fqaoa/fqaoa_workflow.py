@@ -119,7 +119,7 @@ class FQAOA(Workflow):
         super().__init__(device)
         self.circuit_properties = CircuitProperties()
         
-        # FQAOA default settig
+        # FQAOA default settigs
         self.circuit_properties.mixer_hamiltonian = "xy"
         self.circuit_properties.mixer_qubit_connectivity = "cyclic"
 
@@ -418,19 +418,20 @@ class FQAOA(Workflow):
         return serializable_dict
 
     def _get_initial_state(self):
+        
         """
-         Generate the initial parametric quantum circuit.
-         Returns
-         -------
-         QuantumCircuit
-             Quantum circuit for initial state preparation.
-         """
+        Generate the quantum circuit for FQAOA initial state preparation.
 
-        backend_dict = self.backend_properties.__dict__.copy()
-        self.backend = get_qaoa_backend(
-            qaoa_descriptor=self.qaoa_descriptor,
-            device = self.device,
-            **backend_dict,)
+        This method constructs the initial state based on the number of qubits and fermions,
+        and the given mixer qubit connectivity. It supports different backends,
+        generating a state vector if the backend is 'vectorized', or a quantum circuit otherwise.
+    
+        Returns
+        -------
+        state : Union[np.ndarray, QuantumCircuit]
+            The initial state for the FQAOA algorithm, either as a state vector (if the backend is 'vectorized')
+            or as a quantum circuit (for other backends).
+        """
         
         fqaoa_initial = FQAOAInitial(
             n_qubits = self.n_qubits,
@@ -442,9 +443,14 @@ class FQAOA(Workflow):
         if device_name in 'vectorized':
             state = fqaoa_initial.get_statevector()
         else:
+            backend_dict = self.backend_properties.__dict__.copy()
+            self.backend = get_qaoa_backend(
+                qaoa_descriptor=self.qaoa_descriptor,
+                device = self.device,
+                **backend_dict,)
             gtheta = fqaoa_initial.get_givens_rotation_angle()
             gate_applicator = self.backend.gate_applicator
-            initial_circuit = self.backend.gate_applicator.create_quantum_circuit(self.n_qubits)
+            initial_circuit = gate_applicator.create_quantum_circuit(self.n_qubits)
             for each_tuple in FermiInitialGateMap(self.n_qubits, self.n_fermions, gtheta).decomposition('standard'):
                 gate = each_tuple[0](gate_applicator, *each_tuple[1])
                 gate.apply_gate(initial_circuit)
