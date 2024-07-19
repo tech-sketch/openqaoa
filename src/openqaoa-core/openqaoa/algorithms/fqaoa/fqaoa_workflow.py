@@ -4,7 +4,6 @@ from .fqaoa_utils import FQAOAInitial, FermiInitialGateMap
 from ..workflow_properties import CircuitProperties
 from ..baseworkflow import Workflow, check_compiled
 
-from ...backends import QAOABackendAnalyticalSimulator
 from ...backends.devices_core import DeviceLocal
 from ...backends.qaoa_backend import get_qaoa_backend
 from ...problems import QUBO
@@ -119,6 +118,7 @@ class FQAOA(Workflow):
         """
         super().__init__(device)
         self.circuit_properties = CircuitProperties()
+        
         # FQAOA default settig
         self.circuit_properties.mixer_hamiltonian = "xy"
         self.circuit_properties.mixer_qubit_connectivity = "cyclic"
@@ -229,7 +229,6 @@ class FQAOA(Workflow):
         self.n_qubits = self.cost_hamil.n_qubits
         self.n_fermions = po_problem[1]
         
-        # yoshioka fix mixer_type 'xy'
         self.mixer_hamil = get_mixer_hamiltonian(
             n_qubits=self.n_qubits,
             mixer_type=self.circuit_properties.mixer_hamiltonian,
@@ -255,33 +254,13 @@ class FQAOA(Workflow):
             total_annealing_time=self.circuit_properties.annealing_time,
         )
 
-        # yoshioka
-        self.backend_properties.append_state=None
-        self.backend_properties.init_hadamard=False
-        backend_dict = self.backend_properties.__dict__.copy()
-        self.backend = get_qaoa_backend(
-            qaoa_descriptor=self.qaoa_descriptor,
-            device = self.device,
-            **backend_dict,)
-
-        lattice = self.circuit_properties.mixer_qubit_connectivity
-        self.fqaoa_initial = FQAOAInitial(n_qubits = self.n_qubits, n_fermions = self.n_fermions, lattice = lattice)
-        device_name = self.device.device_name
-        if device_name in 'vectorized':
-            state = self.fqaoa_initial.get_statevector()
-        else:
-            gtheta = self.fqaoa_initial.get_givens_rotation_angle()
-            gate_applicator = self.backend.gate_applicator
-            initial_circuit = self.backend.gate_applicator.create_quantum_circuit(self.n_qubits)
-            for each_tuple in FermiInitialGateMap(self.n_qubits, self.n_fermions, gtheta).decomposition('standard'):
-                gate = each_tuple[0](gate_applicator, *each_tuple[1])
-                gate.apply_gate(initial_circuit)
-            state = initial_circuit
-            
-        self.backend_properties.prepend_state=state
+        self.set_backend_properties(
+            prepend_state=self._get_initial_state(),
+            append_state=None,
+            init_hadamard=False,
+        )
         
         backend_dict = self.backend_properties.__dict__.copy()
-        print('print(device)', self.device)
         self.backend = get_qaoa_backend(
             qaoa_descriptor=self.qaoa_descriptor,
             device=self.device,
@@ -437,3 +416,39 @@ class FQAOA(Workflow):
             ]["circuit_properties"]["q"]
 
         return serializable_dict
+
+    def _get_initial_state(self):
+        """
+         Generate the initial parametric quantum circuit.
+         Returns
+         -------
+         QuantumCircuit
+             Quantum circuit for initial state preparation.
+         """
+
+        backend_dict = self.backend_properties.__dict__.copy()
+        self.backend = get_qaoa_backend(
+            qaoa_descriptor=self.qaoa_descriptor,
+            device = self.device,
+            **backend_dict,)
+        
+        fqaoa_initial = FQAOAInitial(
+            n_qubits = self.n_qubits,
+            n_fermions = self.n_fermions,
+            lattice = self.circuit_properties.mixer_qubit_connectivity
+        )
+        device_name = self.device.device_name
+                
+        if device_name in 'vectorized':
+            state = fqaoa_initial.get_statevector()
+        else:
+            gtheta = fqaoa_initial.get_givens_rotation_angle()
+            gate_applicator = self.backend.gate_applicator
+            initial_circuit = self.backend.gate_applicator.create_quantum_circuit(self.n_qubits)
+            for each_tuple in FermiInitialGateMap(self.n_qubits, self.n_fermions, gtheta).decomposition('standard'):
+                gate = each_tuple[0](gate_applicator, *each_tuple[1])
+                gate.apply_gate(initial_circuit)
+            state = initial_circuit
+
+        return state
+    
