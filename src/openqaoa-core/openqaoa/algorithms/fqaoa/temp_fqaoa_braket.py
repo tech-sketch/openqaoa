@@ -4,9 +4,13 @@ from openqaoa.backends import create_device
 from temp_PO import portfolio
 
 # device setting
-device = create_device(location='aws', 
+device1 = create_device(location='aws', 
                             name='arn:aws:braket:::device/quantum-simulator/amazon/sv1', 
                             aws_region='us-west-1')
+device2 = create_device(location='aws', 
+                            name='arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet', 
+                            aws_region='eu-north-1')
+device = device2
 
 # parameters for fqaoa
 num_assets = 10
