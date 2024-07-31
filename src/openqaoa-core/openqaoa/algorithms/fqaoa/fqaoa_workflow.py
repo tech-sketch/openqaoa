@@ -12,13 +12,9 @@ from ...qaoa_components import (
     QAOADescriptor,
     create_qaoa_variational_params,
 )
-from ...qaoa_components.variational_parameters.variational_baseparams import (
-    QAOAVariationalBaseParams,
-)
 from ...utilities import (
     get_mixer_hamiltonian,
     generate_timestamp,
-    ground_state_hamiltonian,
 )
 from ...optimizers.qaoa_optimizer import get_optimizer
 from ...backends.wrapper import SPAMTwirlingWrapper,ZNEWrapper
@@ -118,16 +114,13 @@ class FQAOA(Workflow):
         """
         super().__init__(device)
         self.circuit_properties = CircuitProperties()
-        
+
         # FQAOA default settigs
         self.circuit_properties.mixer_hamiltonian = "xy"
         self.circuit_properties.mixer_qubit_connectivity = "cyclic"
-
         if device.device_name == 'analytical_simulator':
             raise ValueError("FQAOA cannot be performed on the analytical simulator.")
-        
         self.header["algorithm"] = "fqaoa"
-        
 
     @check_compiled
     def set_circuit_properties(self, mixer_hamiltonian="xy", mixer_qubit_connectivity="cyclic", **kwargs):
@@ -184,15 +177,12 @@ class FQAOA(Workflow):
             else:
                 raise ValueError("Specified argument is not supported by the circuit")
         self.circuit_properties = CircuitProperties(mixer_hamiltonian=mixer_hamiltonian, mixer_qubit_connectivity=mixer_qubit_connectivity, **kwargs)
-        
         # yoshioka add mixer_hamiltonian and mixer_qubit_connectivity
         # FQAOA fix some parameters
         if mixer_hamiltonian != "xy":
             raise ValueError(f"Invalid mixer '{mixer_hamiltonian}' provided. Only 'xy' mixer is supported in FQAOA.")
         if mixer_qubit_connectivity not in ['cyclic', 'chain']:
             raise ValueError("Invalid value for lattice. Allowed values are one-dimensional 'cyclic' and 'chain'.")
-
-        return None
 
     def compile(
         self,
@@ -218,17 +208,18 @@ class FQAOA(Workflow):
         verbose: bool
             Set True to have a summary of QAOA to displayed after compilation
         """
-        
+
+        problem = po_problem[0]
         self.device.check_connection()
-        super().compile(problem=po_problem[0])
+        super().compile(problem=problem)
 
         self.cost_hamil = Hamiltonian.classical_hamiltonian(
-            terms=po_problem[0].terms, coeffs=po_problem[0].weights, constant=po_problem[0].constant
+            terms=problem.terms, coeffs=problem.weights, constant=problem.constant
         )
-        
+
         self.n_qubits = self.cost_hamil.n_qubits
         self.n_fermions = po_problem[1]
-        
+
         self.mixer_hamil = get_mixer_hamiltonian(
             n_qubits=self.n_qubits,
             mixer_type=self.circuit_properties.mixer_hamiltonian,
@@ -259,7 +250,7 @@ class FQAOA(Workflow):
             append_state=None,
             init_hadamard=False,
         )
-        
+
         backend_dict = self.backend_properties.__dict__.copy()
         self.backend = get_qaoa_backend(
             qaoa_descriptor=self.qaoa_descriptor,
@@ -290,7 +281,7 @@ class FQAOA(Workflow):
                 order=self.error_mitigation_properties.order,
                 steps=self.error_mitigation_properties.steps
             )
-        
+
         self.optimizer = get_optimizer(
             vqa_object=self.backend,
             variational_params=self.variate_params,
@@ -418,7 +409,6 @@ class FQAOA(Workflow):
         return serializable_dict
 
     def _get_initial_state(self):
-        
         """
         Generate the quantum circuit for FQAOA initial state preparation.
 
@@ -432,14 +422,13 @@ class FQAOA(Workflow):
             The initial state for the FQAOA algorithm, either as a state vector (if the backend is 'vectorized')
             or as a quantum circuit (for other backends).
         """
-        
+
         fqaoa_initial = FQAOAInitial(
             n_qubits = self.n_qubits,
             n_fermions = self.n_fermions,
             lattice = self.circuit_properties.mixer_qubit_connectivity
         )
         device_name = self.device.device_name
-                
         if device_name in 'vectorized':
             state = fqaoa_initial.get_statevector()
         else:
@@ -457,4 +446,3 @@ class FQAOA(Workflow):
             state = initial_circuit
 
         return state
-    
