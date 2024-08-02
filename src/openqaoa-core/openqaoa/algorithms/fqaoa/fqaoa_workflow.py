@@ -79,7 +79,7 @@ class FQAOA(Workflow):
     >>> q.fermi_compile(po_problem)
     >>> q.optimize()
 
-    Where `PO` is a an instance of portfolio optimization (PO), which is `openqaoa.problems.problem.QUBO` under constraint
+    Where `po_problem` is a an instance of portfolio optimization, which is `openqaoa.problems.problem.QUBO` under constraint
 
     If you want to use non-default parameters:
 
@@ -209,16 +209,27 @@ class FQAOA(Workflow):
             Set True to have a summary of QAOA to displayed after compilation
         """
 
-        problem = po_problem[0]
+        # Check whether the po_problem is a tuple.
+        if isinstance(po_problem, tuple) and len(po_problem) == 2:
+            if isinstance(po_problem[0], QUBO) and isinstance(po_problem[1], int):
+                problem, n_fermions = po_problem
+            else:
+                raise ValueError("Invalid QUBO format or integer parameter.")
+        else:
+            raise TypeError("Problem must be a tuple of (qubo, int).")
+        self.n_fermions = n_fermions
+
+        # connect to the QPU specified
         self.device.check_connection()
+        # we compile the method of the parent class to genereate the id and
+        # check the problem is a QUBO object and save it
         super().compile(problem=problem)
 
         self.cost_hamil = Hamiltonian.classical_hamiltonian(
             terms=problem.terms, coeffs=problem.weights, constant=problem.constant
         )
-
         self.n_qubits = self.cost_hamil.n_qubits
-        self.n_fermions = po_problem[1]
+
         self.mixer_hamil = get_mixer_hamiltonian(
             n_qubits=self.n_qubits,
             mixer_type=self.circuit_properties.mixer_hamiltonian,
