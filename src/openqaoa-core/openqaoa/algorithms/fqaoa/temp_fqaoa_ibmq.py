@@ -19,9 +19,9 @@ hopping = 1.0
 PO = portfolio(num_assets, Budget)
 print('device: ', device.device_location, device.device_name)
 fqaoa = FQAOA(device)
-fqaoa.set_backend_properties(n_shots = 10000)
-fqaoa.set_classical_optimizer(method='cobyla', maxiter=50, tol=0.05)
-fqaoa.compile(PO)
+fqaoa.set_backend_properties(n_shots = 1)
+fqaoa.set_classical_optimizer(method='cobyla', maxiter=1, tol=0.05)
+fqaoa.fermi_compile(PO)
 fqaoa.optimize()
 opt_results = fqaoa.result
 cost = opt_results.optimized['cost']

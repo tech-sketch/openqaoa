@@ -76,14 +76,14 @@ class FQAOA(Workflow):
     to use the function.
 
     >>> q = FQAOA()
-    >>> q.compile(PO)
+    >>> q.fermi_compile(po_problem)
     >>> q.optimize()
 
     Where `PO` is a an instance of portfolio optimization (PO), which is `openqaoa.problems.problem.QUBO` under constraint
 
     If you want to use non-default parameters:
 
-    >>> q_custom = QAOA()
+    >>> q_custom = FQAOA()
     >>> q_custom.set_circuit_properties(
             p=10,
             param_type='extended',
@@ -99,7 +99,7 @@ class FQAOA(Workflow):
         )
     >>> q_custom.set_backend_properties(n_shots=200, cvar_alpha=1)
     >>> q_custom.set_classical_optimizer(method='nelder-mead', maxiter=2)
-    >>> q_custom.compile(qubo_problem)
+    >>> q_custom.fermi_compile(qubo_problem)
     >>> q_custom.optimize()
     """
 
@@ -184,7 +184,7 @@ class FQAOA(Workflow):
         if mixer_qubit_connectivity not in ['cyclic', 'chain']:
             raise ValueError("Invalid value for lattice. Allowed values are one-dimensional 'cyclic' and 'chain'.")
 
-    def compile(
+    def fermi_compile(
         self,
         po_problem: Optional[Tuple[QUBO, int]] = None,
         verbose: bool = False,
@@ -219,7 +219,6 @@ class FQAOA(Workflow):
 
         self.n_qubits = self.cost_hamil.n_qubits
         self.n_fermions = po_problem[1]
-
         self.mixer_hamil = get_mixer_hamiltonian(
             n_qubits=self.n_qubits,
             mixer_type=self.circuit_properties.mixer_hamiltonian,
@@ -244,7 +243,7 @@ class FQAOA(Workflow):
             seed=self.circuit_properties.seed,
             total_annealing_time=self.circuit_properties.annealing_time,
         )
-
+ 
         self.set_backend_properties(
             prepend_state=self._get_initial_state(),
             append_state=None,

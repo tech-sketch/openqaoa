@@ -17,7 +17,7 @@ device_list = [create_device(location='local', name='qiskit.statevector_simulato
 for device in device_list:
     print('device: ', device.device_location, device.device_name)
     fqaoa = FQAOA(device)
-    fqaoa.compile(PO)
+    fqaoa.fermi_compile(PO)
     fqaoa.optimize()
     opt_results = fqaoa.result
     cost = opt_results.optimized['cost']
