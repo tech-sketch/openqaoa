@@ -254,14 +254,14 @@ class FQAOA(Workflow):
             seed=self.circuit_properties.seed,
             total_annealing_time=self.circuit_properties.annealing_time,
         )
- 
-        self.set_backend_properties(
-            prepend_state=self._get_initial_state(),
-            append_state=None,
-            init_hadamard=False,
-        )
 
+        # Backend configuration required for FQAOA.
+        self.backend_properties.prepend_state=self._get_initial_state()
+        self.backend_properties.append_state=None
+        self.backend_properties.init_hadamard=False
+        
         backend_dict = self.backend_properties.__dict__.copy()
+
         self.backend = get_qaoa_backend(
             qaoa_descriptor=self.qaoa_descriptor,
             device=self.device,
@@ -420,17 +420,34 @@ class FQAOA(Workflow):
 
     def _get_initial_state(self):
         """
-        Generate the quantum circuit for FQAOA initial state preparation.
-
-        This method constructs the initial state based on the number of qubits and fermions,
-        and the given mixer qubit connectivity. It supports different backends,
-        generating a state vector if the backend is 'vectorized', or a quantum circuit otherwise.
+        Generate the initial quantum state for the FQAOA algorithm.
+    
+        This method initializes the quantum state for the FQAOA (Fermionic Quantum 
+        Approximate Optimization Algorithm) using the specified number of qubits, 
+        fermions, and lattice configuration. Depending on the backend, it either 
+        returns the statevector or constructs a quantum circuit with the initial state.
     
         Returns
         -------
-        state : Union[np.ndarray, QuantumCircuit]
-            The initial state for the FQAOA algorithm, either as a state vector (if the backend is 'vectorized')
-            or as a quantum circuit (for other backends).
+        state : numpy.ndarray or QuantumCircuit
+            The initial quantum state. If the backend is 'vectorized', it returns a 
+            statevector as a numpy array. For other backends, it returns a QuantumCircuit 
+            object with the initial state prepared.
+    
+        Notes
+        -----
+        - The method uses the `FQAOAInitial` class to determine the initial state.
+        - If the backend is 'vectorized', the state is returned as a statevector.
+        - For other backends, the method constructs a quantum circuit using the gate 
+          applicator specific to the backend and the Givens rotation angles computed 
+          for the initial state.
+    
+        See Also
+        --------
+        FQAOAInitial : Class for initializing the FQAOA state.
+        get_qaoa_backend : Function to get the QAOA backend.
+        gate_applicator : Object to apply quantum gates on the circuit.
+        FermiInitialGateMap : Class for mapping Fermi initial gates.
         """
 
         fqaoa_initial = FQAOAInitial(
@@ -442,6 +459,7 @@ class FQAOA(Workflow):
         if device_name in 'vectorized':
             state = fqaoa_initial.get_statevector()
         else:
+            # Temporarily, set the backend to call the gate_applicator corresponding to the specified backend.
             backend_dict = self.backend_properties.__dict__.copy()
             self.backend = get_qaoa_backend(
                 qaoa_descriptor=self.qaoa_descriptor,
