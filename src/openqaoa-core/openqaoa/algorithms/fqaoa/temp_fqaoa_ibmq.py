@@ -16,12 +16,12 @@ device = create_device(location='ibmq', name='ibm_osaka')
 num_assets = 10
 Budget = 5
 hopping = 1.0
-PO = portfolio(num_assets, Budget)
+po_problem = portfolio(num_assets, Budget)
 print('device: ', device.device_location, device.device_name)
 fqaoa = FQAOA(device)
 fqaoa.set_backend_properties(n_shots = 1)
 fqaoa.set_classical_optimizer(method='cobyla', maxiter=1, tol=0.05)
-fqaoa.fermi_compile(PO)
+fqaoa.fermi_compile(po_problem)
 fqaoa.optimize()
 opt_results = fqaoa.result
 cost = opt_results.optimized['cost']

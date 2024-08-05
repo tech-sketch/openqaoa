@@ -7,7 +7,7 @@ from temp_PO import portfolio
 num_assets = 10
 Budget = 5
 hopping = 1.0
-PO = portfolio(num_assets, Budget)
+po_problem = portfolio(num_assets, Budget)
 # https://openqaoa.entropicalabs.com/devices/qiskit/
 device_list = [create_device(location='local', name='qiskit.statevector_simulator'),
                create_device(location='local', name='qiskit.qasm_simulator'),
@@ -17,7 +17,8 @@ device_list = [create_device(location='local', name='qiskit.statevector_simulato
 for device in device_list:
     print('device: ', device.device_location, device.device_name)
     fqaoa = FQAOA(device)
-    fqaoa.fermi_compile(PO)
+    fqaoa.set_backend_properties(n_shots=10000)
+    fqaoa.fermi_compile(po_problem)
     fqaoa.optimize()
     opt_results = fqaoa.result
     cost = opt_results.optimized['cost']
