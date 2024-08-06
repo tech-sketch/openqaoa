@@ -187,15 +187,11 @@ class RXXGateMap(TwoQubitRotationGateMap):
     def _decomposition_standard(self) -> List[Tuple]:
         return [
             (
-                RY,
-                [self.qubit_1, RotationAngle(lambda x: x, self.gate_label, np.pi / 2)],
+                RY, [self.qubit_1, RotationAngle(lambda x: x, self.gate_label, -np.pi / 2)]
             ),
-            (RX, [self.qubit_1, RotationAngle(lambda x: x, self.gate_label, np.pi)]),
             (
-                RY,
-                [self.qubit_2, RotationAngle(lambda x: x, self.gate_label, np.pi / 2)],
+                RY, [self.qubit_2, RotationAngle(lambda x: x, self.gate_label, -np.pi / 2)]
             ),
-            (RX, [self.qubit_2, RotationAngle(lambda x: x, self.gate_label, np.pi)]),
             (CX, [self.qubit_1, self.qubit_2]),
             (
                 RZ,
@@ -206,15 +202,11 @@ class RXXGateMap(TwoQubitRotationGateMap):
             ),
             (CX, [self.qubit_1, self.qubit_2]),
             (
-                RY,
-                [self.qubit_1, RotationAngle(lambda x: x, self.gate_label, np.pi / 2)],
+                RY, [self.qubit_1, RotationAngle(lambda x: x, self.gate_label, np.pi / 2)]
             ),
-            (RX, [self.qubit_1, RotationAngle(lambda x: x, self.gate_label, np.pi)]),
             (
-                RY,
-                [self.qubit_2, RotationAngle(lambda x: x, self.gate_label, np.pi / 2)],
+                RY, [self.qubit_2, RotationAngle(lambda x: x, self.gate_label, np.pi / 2)]
             ),
-            (RX, [self.qubit_2, RotationAngle(lambda x: x, self.gate_label, np.pi)]),
         ]
 
 
@@ -246,8 +238,8 @@ class RYYGateMap(TwoQubitRotationGateMap):
             ),
             (CX, [self.qubit_1, self.qubit_2]),
             (
-                RY,
-                [self.qubit_2, RotationAngle(lambda x: x, self.gate_label, -np.pi / 2)],
+                RX,
+                [self.qubit_1, RotationAngle(lambda x: x, self.gate_label, -np.pi / 2)],
             ),
             (
                 RX,

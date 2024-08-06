@@ -88,7 +88,6 @@ class FQAOA(Workflow):
             p=10,
             param_type='extended',
             init_type='ramp',
-            mixer_hamiltonian='x'
         )
     >>> q_custom.set_device_properties(
             device_location = 'qcs', device_name='Aspen-11',
@@ -255,11 +254,15 @@ class FQAOA(Workflow):
             total_annealing_time=self.circuit_properties.annealing_time,
         )
 
-        # Backend configuration required for FQAOA.
-        self.backend_properties.prepend_state=self._get_initial_state()
-        self.backend_properties.append_state=None
-        self.backend_properties.init_hadamard=False
-        
+        # Backend configuration required for initial state preparation in FQAOA.
+        self.backend_properties.init_hadamard=False        
+        if self.backend_properties.prepend_state != None:
+            raise ValueError(
+                f"prepend_state has an invalid value: {self.backend_properties.prepend_state}"
+            )
+        else:
+            self.backend_properties.prepend_state=self._get_initial_state()
+
         backend_dict = self.backend_properties.__dict__.copy()
 
         self.backend = get_qaoa_backend(
