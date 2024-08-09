@@ -15,8 +15,8 @@ hopping = 1.0
 po_problem = portfolio(num_assets, Budget)
 print('device: ', device.device_location, device.device_name)
 fqaoa = FQAOA(device)
-fqaoa.set_circuit_properties(p=2, param_type = 'standard', init_type='custom',
-                             variational_params_dict={'betas': [0.585006801188, 0.266641182593], 'gammas': [0.07350407864, 0.530566945239]})
+fqaoa.set_circuit_properties(p=2, variational_params_dict={'betas': [0.585006801188, 0.266641182593], 'gammas': [0.07350407864, 0.530566945239]})
+#fqaoa.set_circuit_properties(p=1)
 fqaoa.set_backend_properties(n_shots=10000)
 fqaoa.set_classical_optimizer(maxiter=0)
 fqaoa.fermi_compile(po_problem)

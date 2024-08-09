@@ -17,7 +17,7 @@ device_list = [create_device(location='local', name='qiskit.statevector_simulato
 for device in device_list:
     print('device: ', device.device_location, device.device_name)
     fqaoa = FQAOA(device)
-    fqaoa.set_circuit_properties(p=2, param_type = 'standard')
+    fqaoa.set_circuit_properties(p=2)
     fqaoa.set_backend_properties(n_shots=10000)
     fqaoa.set_classical_optimizer(maxiter=100)
     fqaoa.fermi_compile(po_problem)

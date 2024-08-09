@@ -1,8 +1,8 @@
+from typing import List, Optional
 from braket.circuits import Circuit
 from qiskit import QuantumCircuit, QuantumRegister
 from openqaoa_qiskit.backends.gates_qiskit import QiskitGateApplicator
-
-# yoshioka temp
+from ..workflow_properties import WorkflowProperties
 from typing import List, Tuple
 from openqaoa.qaoa_components.ansatz_constructor.gatemap import GateMap
 from openqaoa.qaoa_components.ansatz_constructor.gatemaplabel import GateMapType, GateMapLabel
@@ -10,6 +10,126 @@ from openqaoa.qaoa_components.ansatz_constructor.gates import *
 
 import numpy as np
 from scipy import linalg
+
+ALLOWED_PARAM_TYPES = [
+    "standard",
+    "standard_w_bias",
+    "extended",
+    "fourier",
+    "fourier_extended",
+    "fourier_w_bias",
+    "annealing",
+]
+ALLOWED_INIT_TYPES = ["rand", "ramp", "custom"]
+ALLOWED_MIXERS = ["x", "xy"]
+
+class FermiCircuitProperties(WorkflowProperties):
+    """
+    Tunable properties of the QAOA circuit to be specified by the user
+    """
+
+    def __init__(
+        self,
+        param_type: str = "standard",
+        init_type: str = "ramp",
+        qubit_register: List = [],
+        p: int = 1,
+        q: Optional[int] = 1,
+        annealing_time: Optional[float] = None,
+        linear_ramp_time: Optional[float] = None,
+        variational_params_dict: Optional[dict] = {},
+        mixer_hamiltonian: Optional[str] = "xy",
+        mixer_qubit_connectivity: Optional[str] = None,
+        mixer_coeffs: Optional[float] = None,
+        seed: Optional[int] = None,
+    ):
+        self.param_type = param_type
+        self.init_type = init_type
+        self.qubit_register = qubit_register
+        self.p = p
+        self.q = (
+            q
+            if param_type.lower() in ["fourier", "fourier_extended", "fourier_w_bias"]
+            else None
+        )
+        self.variational_params_dict = variational_params_dict
+        self.annealing_time = (
+            annealing_time if annealing_time is not None else 0.7 * self.p
+        )
+        self.linear_ramp_time = (
+            linear_ramp_time if linear_ramp_time is not None else 0.7 * self.p
+        )
+        self.mixer_hamiltonian = mixer_hamiltonian
+        if self.mixer_hamiltonian.lower() == "xy":
+            self.mixer_qubit_connectivity = (
+                mixer_qubit_connectivity
+                if mixer_qubit_connectivity is not None
+                else "full"
+            )
+        else:
+            self.mixer_qubit_connectivity = None
+        self.mixer_coeffs = mixer_coeffs
+        self.seed = seed
+
+    @property
+    def param_type(self):
+        return self._param_type
+
+    @param_type.setter
+    def param_type(self, value):
+        if value not in ALLOWED_PARAM_TYPES:
+            raise ValueError(
+                f"param_type {value} is not recognised. Please use {ALLOWED_PARAM_TYPES}"
+            )
+        self._param_type = value
+
+    @property
+    def init_type(self):
+        return self._init_type
+
+    @init_type.setter
+    def init_type(self, value):
+        if value not in ALLOWED_INIT_TYPES:
+            raise ValueError(
+                f"init_type {value} is not recognised. Please use {ALLOWED_INIT_TYPES}"
+            )
+        self._init_type = value
+
+    @property
+    def mixer_hamiltonian(self):
+        return self._mixer_hamiltonian
+
+    @mixer_hamiltonian.setter
+    def mixer_hamiltonian(self, value):
+        if value not in ALLOWED_MIXERS:
+            raise ValueError(
+                f"mixer_hamiltonian {value} is not recognised. Please use {ALLOWED_MIXERS}"
+            )
+        self._mixer_hamiltonian = value
+
+    @property
+    def p(self):
+        return self._p
+
+    @p.setter
+    def p(self, value):
+        if value <= 0:
+            raise ValueError(
+                f"Number of layers `p` cannot be smaller or equal to zero. Value {value} was provided"
+            )
+        self._p = value
+
+    @property
+    def annealing_time(self):
+        return self._annealing_time
+
+    @annealing_time.setter
+    def annealing_time(self, value):
+        if value <= 0:
+            raise ValueError(
+                f"The annealing time `annealing_time` cannot be smaller or equal to zero. Value {value} was provided"
+            )
+        self._annealing_time = value
 
 class FermiInitialGateMap(GateMap):
     """

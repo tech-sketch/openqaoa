@@ -1,7 +1,6 @@
 from typing import Callable, Optional, Tuple
-from .fqaoa_utils import FQAOAInitial, FermiInitialGateMap
+from .fqaoa_utils import FermiCircuitProperties, FQAOAInitial, FermiInitialGateMap
 
-from ..workflow_properties import CircuitProperties
 from ..baseworkflow import Workflow, check_compiled
 
 from ...backends.devices_core import DeviceLocal
@@ -75,31 +74,31 @@ class FQAOA(Workflow):
     Examples should be written in doctest format, and should illustrate how
     to use the function.
 
-    >>> q = FQAOA()
-    >>> q.fermi_compile(po_problem)
-    >>> q.optimize()
+    >>> fqaoa = FQAOA()
+    >>> fqaoa.fermi_compile(po_problem)
+    >>> fqaoa.optimize()
 
     Where `po_problem` is a an instance of portfolio optimization, which is `openqaoa.problems.problem.QUBO` under constraint
 
     If you want to use non-default parameters:
 
-    >>> q_custom = FQAOA()
-    >>> q_custom.set_circuit_properties(
+    >>> fqaoa_custom = FQAOA()
+    >>> fqaoa_custom.set_circuit_properties(
             p=10,
             param_type='extended',
             init_type='ramp',
         )
-    >>> q_custom.set_device_properties(
+    >>> fqaoa_custom.set_device_properties(
             device_location = 'qcs', device_name='Aspen-11',
             cloud_credentials = {
                 'name' : "Aspen11", 'as_qvm':True,
                 'execution_timeout' : 10, 'compiler_timeout':10
             }
         )
-    >>> q_custom.set_backend_properties(n_shots=200, cvar_alpha=1)
-    >>> q_custom.set_classical_optimizer(method='nelder-mead', maxiter=2)
-    >>> q_custom.fermi_compile(qubo_problem)
-    >>> q_custom.optimize()
+    >>> fqaoa_custom.set_backend_properties(n_shots=200, cvar_alpha=1)
+    >>> fqaoa_custom.set_classical_optimizer(method='nelder-mead', maxiter=2)
+    >>> fqaoa_custom.fermi_compile(qubo_problem)
+    >>> fqaoa_custom.optimize()
     """
 
     def __init__(self, device=DeviceLocal("vectorized")):
@@ -112,16 +111,14 @@ class FQAOA(Workflow):
             Device to be used by the optimizer. Default is using the local 'vectorized' simulator.
         """
         super().__init__(device)
-        self.circuit_properties = CircuitProperties()
+        self.circuit_properties = FermiCircuitProperties(mixer_hamiltonian="xy", mixer_qubit_connectivity="cyclic")
 
-        # FQAOA default settigs
-        self.circuit_properties.mixer_hamiltonian = "xy"
-        self.circuit_properties.mixer_qubit_connectivity = "cyclic"
+        # Exception handling in FQAOA
         if device.device_name == 'analytical_simulator':
             raise ValueError("FQAOA cannot be performed on the analytical simulator.")
+        # change header algorithm to fqaoa
         self.header["algorithm"] = "fqaoa"
 
-    @check_compiled
     def set_circuit_properties(self, mixer_hamiltonian="xy", mixer_qubit_connectivity="cyclic", **kwargs):
         """
         Specify the circuit properties to construct QAOA circuit
@@ -169,15 +166,15 @@ class FQAOA(Workflow):
             the chosen parameterization, if the `init_type` is selected as `'custom'`.
             For example, for standard params set {'betas': [0.1, 0.2, 0.3], 'gammas': [0.1, 0.2, 0.3]}
         """
-
         for key, value in kwargs.items():
             if hasattr(self.circuit_properties, key):
                 pass
             else:
                 raise ValueError("Specified argument is not supported by the circuit")
-        self.circuit_properties = CircuitProperties(mixer_hamiltonian=mixer_hamiltonian, mixer_qubit_connectivity=mixer_qubit_connectivity, **kwargs)
-        # yoshioka add mixer_hamiltonian and mixer_qubit_connectivity
-        # FQAOA fix some parameters
+        self.circuit_properties = FermiCircuitProperties(mixer_hamiltonian=mixer_hamiltonian, mixer_qubit_connectivity=mixer_qubit_connectivity, **kwargs)
+
+
+        # Exception handling in FQAOA
         if mixer_hamiltonian != "xy":
             raise ValueError(f"Invalid mixer '{mixer_hamiltonian}' provided. Only 'xy' mixer is supported in FQAOA.")
         if mixer_qubit_connectivity not in ['cyclic', 'chain']:
@@ -227,6 +224,7 @@ class FQAOA(Workflow):
         self.cost_hamil = Hamiltonian.classical_hamiltonian(
             terms=problem.terms, coeffs=problem.weights, constant=problem.constant
         )
+
         self.n_qubits = self.cost_hamil.n_qubits
 
         self.mixer_hamil = get_mixer_hamiltonian(
@@ -243,6 +241,7 @@ class FQAOA(Workflow):
             routing_function=routing_function,
             device=self.device,
         )
+
         self.variate_params = create_qaoa_variational_params(
             qaoa_descriptor=self.qaoa_descriptor,
             params_type=self.circuit_properties.param_type,
@@ -254,14 +253,15 @@ class FQAOA(Workflow):
             total_annealing_time=self.circuit_properties.annealing_time,
         )
 
-        # Backend configuration required for initial state preparation in FQAOA.
-        self.backend_properties.init_hadamard=False        
+        # Exception handling in FQAOA
         if self.backend_properties.prepend_state != None:
             raise ValueError(
-                f"prepend_state has an invalid value: {self.backend_properties.prepend_state}"
+                f"The initial state of an FQAOA is only specified by mixer_qubit_connectivity."
             )
-        else:
-            self.backend_properties.prepend_state=self._get_initial_state()
+
+        # Backend configuration required for initial state preparation in FQAOA.
+        self.backend_properties.init_hadamard=False
+        self.backend_properties.prepend_state=self._fermi_get_initial_state()
 
         backend_dict = self.backend_properties.__dict__.copy()
 
@@ -421,7 +421,8 @@ class FQAOA(Workflow):
 
         return serializable_dict
 
-    def _get_initial_state(self):
+
+    def _fermi_get_initial_state(self):
         """
         Generate the initial quantum state for the FQAOA algorithm.
     
